@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { HttpUtil } from '../utils/HttpUtil';
-import { User, Calendar, ArrowLeft, Trash2, Edit } from 'lucide-react';
+import { User, Calendar, ArrowLeft, Trash2, Edit, Heart } from 'lucide-react';
 import Modal from '../components/Modal';
 
 const ArticleDetail = () => {
@@ -9,6 +9,7 @@ const ArticleDetail = () => {
     const navigate = useNavigate();
     const [article, setArticle] = useState(null);
     const [loading, setLoading] = useState(true);
+    const [isLiking, setIsLiking] = useState(false);
     const user = JSON.parse(localStorage.getItem('user') || '{}');
 
     // Modal State
@@ -34,6 +35,29 @@ const ArticleDetail = () => {
             navigate('/');
         } catch (error) {
             alert('删除失败: ' + error.message);
+        }
+    };
+
+    const handleLike = async () => {
+        const token = localStorage.getItem('token');
+        if (!token) {
+            window.location.href = '/login';
+            return;
+        }
+        if (isLiking) return;
+
+        setIsLiking(true);
+        try {
+            const result = await HttpUtil.post(`/article/${id}/like`);
+            setArticle(prev => ({
+                ...prev,
+                liked: result.liked,
+                likeCount: result.likeCount
+            }));
+        } catch (error) {
+            console.error("Failed to toggle like", error);
+        } finally {
+            setIsLiking(false);
         }
     };
 
@@ -72,13 +96,25 @@ const ArticleDetail = () => {
                         <h1 className="text-3xl md:text-5xl font-extrabold text-gray-900 leading-tight mb-6 tracking-tight">
                             {article.title}
                         </h1>
-                        <div className="flex items-center justify-center gap-4 text-sm font-medium">
+                        <div className="flex items-center justify-center gap-4 text-sm font-medium flex-wrap">
                             <span className="flex items-center gap-1.5 bg-white/60 backdrop-blur-md px-4 py-1.5 rounded-full text-blue-700 shadow-sm border border-white/50">
                                 <User size={14} /> {article.user?.username}
                             </span>
                             <span className="flex items-center gap-1.5 bg-white/60 backdrop-blur-md px-4 py-1.5 rounded-full text-gray-600 shadow-sm border border-white/50">
                                 <Calendar size={14} /> {new Date(article.createdAt).toLocaleDateString()}
                             </span>
+                            <button
+                                onClick={handleLike}
+                                disabled={isLiking}
+                                className={`flex items-center gap-1.5 px-4 py-1.5 rounded-full shadow-sm border backdrop-blur-md transition-all ${
+                                    article.liked
+                                        ? 'bg-red-50 border-red-100 text-red-500 hover:bg-red-100'
+                                        : 'bg-white/60 border-white/50 text-gray-600 hover:bg-red-50 hover:text-red-400 hover:border-red-100'
+                                } ${isLiking ? 'opacity-50 pointer-events-none' : ''}`}
+                            >
+                                <Heart size={14} fill={article.liked ? 'currentColor' : 'none'} />
+                                <span>{article.likeCount || 0}</span>
+                            </button>
                         </div>
                     </div>
                 </div>

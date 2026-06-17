@@ -1,10 +1,17 @@
 const sequelize = require('../utils/db');
 const User = require('./user');
 const Article = require('./article');
+const Like = require('./like');
 
 // Define Associations
 User.hasMany(Article, { foreignKey: 'authorId' });
 Article.belongsTo(User, { foreignKey: 'authorId' });
+
+User.hasMany(Like, { foreignKey: 'userId' });
+Like.belongsTo(User, { foreignKey: 'userId' });
+
+Article.hasMany(Like, { foreignKey: 'articleId' });
+Like.belongsTo(Article, { foreignKey: 'articleId' });
 
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -37,5 +44,6 @@ module.exports = {
     sequelize,
     User,
     Article,
+    Like,
     initDb
 };

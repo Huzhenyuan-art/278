@@ -1,11 +1,12 @@
 import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { HttpUtil } from '../utils/HttpUtil';
-import { Clock, User as UserIcon, ArrowRight, MessageSquare, Sparkles, TrendingUp } from 'lucide-react';
+import { Clock, User as UserIcon, ArrowRight, MessageSquare, Sparkles, TrendingUp, Heart } from 'lucide-react';
 
 const Dashboard = () => {
     const [articles, setArticles] = useState([]);
     const [loading, setLoading] = useState(true);
+    const [likingIds, setLikingIds] = useState(new Set());
 
     useEffect(() => {
         const fetchArticles = async () => {
@@ -20,6 +21,35 @@ const Dashboard = () => {
         };
         fetchArticles();
     }, []);
+
+    const handleLike = async (e, articleId) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const token = localStorage.getItem('token');
+        if (!token) {
+            window.location.href = '/login';
+            return;
+        }
+        if (likingIds.has(articleId)) return;
+
+        setLikingIds(prev => new Set(prev).add(articleId));
+        try {
+            const result = await HttpUtil.post(`/article/${articleId}/like`);
+            setArticles(prev => prev.map(a =>
+                a.id === articleId
+                    ? { ...a, liked: result.liked, likeCount: result.likeCount }
+                    : a
+            ));
+        } catch (error) {
+            console.error("Failed to toggle like", error);
+        } finally {
+            setLikingIds(prev => {
+                const next = new Set(prev);
+                next.delete(articleId);
+                return next;
+            });
+        }
+    };
 
     if (loading) {
         return (
@@ -99,10 +129,17 @@ const Dashboard = () => {
                                 <span className="text-xs font-bold text-blue-600 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-all transform translate-x-[-5px] group-hover:translate-x-0 duration-300">
                                     阅读更多 <ArrowRight size={14} />
                                 </span>
-                                <div className="flex items-center gap-1 text-gray-400 bg-gray-50/80 px-1.5 py-0.5 rounded-md">
-                                    <MessageSquare size={10} />
-                                    <span className="text-[10px] font-medium">0</span>
-                                </div>
+                                <button
+                                    onClick={(e) => handleLike(e, article.id)}
+                                    className={`flex items-center gap-1 px-2 py-0.5 rounded-md transition-all ${
+                                        article.liked
+                                            ? 'bg-red-50 text-red-500'
+                                            : 'bg-gray-50/80 text-gray-400 hover:bg-red-50 hover:text-red-400'
+                                    } ${likingIds.has(article.id) ? 'opacity-50 pointer-events-none' : ''}`}
+                                >
+                                    <Heart size={12} fill={article.liked ? 'currentColor' : 'none'} />
+                                    <span className="text-[11px] font-medium">{article.likeCount || 0}</span>
+                                </button>
                             </div>
                         </Link>
                     ))}
