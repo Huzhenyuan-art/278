@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { HttpUtil } from '../utils/HttpUtil';
-import { PenTool, Save, ArrowLeft, Sparkles } from 'lucide-react';
+import { PenTool, Save, ArrowLeft, Sparkles, Tag, Plus, X } from 'lucide-react';
 
 const ArticleEdit = () => {
     const { id } = useParams();
@@ -9,28 +9,68 @@ const ArticleEdit = () => {
     const [formData, setFormData] = useState({ title: '', content: '' });
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
+    const [tags, setTags] = useState([]);
+    const [selectedTagIds, setSelectedTagIds] = useState([]);
+    const [showTagInput, setShowTagInput] = useState(false);
+    const [newTagName, setNewTagName] = useState('');
+    const [creatingTag, setCreatingTag] = useState(false);
 
     useEffect(() => {
-        const fetchArticle = async () => {
+        const fetchData = async () => {
             try {
-                const data = await HttpUtil.get(`/article/${id}`);
-                setFormData({ title: data.title, content: data.content });
+                const [articleData, tagsData] = await Promise.all([
+                    HttpUtil.get(`/article/${id}`),
+                    HttpUtil.get('/tag')
+                ]);
+                setFormData({ title: articleData.title, content: articleData.content });
+                setTags(tagsData);
+                if (articleData.tags && articleData.tags.length > 0) {
+                    setSelectedTagIds(articleData.tags.map(t => t.id));
+                }
             } catch (error) {
-                console.error("Failed to fetch article", error);
+                console.error("Failed to fetch data", error);
                 alert('获取文章失败');
                 navigate('/');
             } finally {
                 setLoading(false);
             }
         };
-        fetchArticle();
+        fetchData();
     }, [id, navigate]);
+
+    const toggleTag = (tagId) => {
+        setSelectedTagIds(prev =>
+            prev.includes(tagId)
+                ? prev.filter(id => id !== tagId)
+                : [...prev, tagId]
+        );
+    };
+
+    const handleCreateTag = async (e) => {
+        e.preventDefault();
+        if (!newTagName.trim()) return;
+        setCreatingTag(true);
+        try {
+            const newTag = await HttpUtil.post('/tag', { name: newTagName.trim() });
+            setTags(prev => [...prev, newTag]);
+            setSelectedTagIds(prev => [...prev, newTag.id]);
+            setNewTagName('');
+            setShowTagInput(false);
+        } catch (error) {
+            alert('创建标签失败: ' + error.message);
+        } finally {
+            setCreatingTag(false);
+        }
+    };
 
     const handleSubmit = async (e) => {
         e.preventDefault();
         setSaving(true);
         try {
-            await HttpUtil.put(`/article/${id}`, formData);
+            await HttpUtil.put(`/article/${id}`, {
+                ...formData,
+                tagIds: selectedTagIds
+            });
             navigate(`/article/${id}`);
         } catch (error) {
             alert('保存失败: ' + error.message);
@@ -82,6 +122,67 @@ const ArticleEdit = () => {
                         />
                     </div>
                     
+                    <div className="space-y-3">
+                        <label className="block text-sm font-bold text-gray-700 ml-1 flex items-center gap-2">
+                            <Tag size={16} className="text-blue-500" />
+                            文章标签
+                        </label>
+                        <div className="flex flex-wrap gap-2 p-4 rounded-2xl border border-gray-200 bg-white/50 min-h-[60px]">
+                            {tags.map(tag => (
+                                <button
+                                    key={tag.id}
+                                    type="button"
+                                    onClick={() => toggleTag(tag.id)}
+                                    className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium transition-all duration-200 ${
+                                        selectedTagIds.includes(tag.id)
+                                            ? 'text-white shadow-md scale-105'
+                                            : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                                    }`}
+                                    style={selectedTagIds.includes(tag.id) ? { backgroundColor: tag.color } : {}}
+                                >
+                                    {tag.name}
+                                    {selectedTagIds.includes(tag.id) && (
+                                        <X size={14} className="opacity-80" />
+                                    )}
+                                </button>
+                            ))}
+                            {!showTagInput ? (
+                                <button
+                                    type="button"
+                                    onClick={() => setShowTagInput(true)}
+                                    className="inline-flex items-center gap-1 px-3 py-1.5 rounded-full text-sm font-medium text-blue-600 bg-blue-50 hover:bg-blue-100 transition-colors border border-dashed border-blue-300"
+                                >
+                                    <Plus size={14} />
+                                    新建标签
+                                </button>
+                            ) : (
+                                <form onSubmit={handleCreateTag} className="inline-flex items-center gap-2">
+                                    <input
+                                        type="text"
+                                        autoFocus
+                                        value={newTagName}
+                                        onChange={e => setNewTagName(e.target.value)}
+                                        placeholder="输入标签名"
+                                        className="px-3 py-1.5 rounded-full text-sm border border-blue-300 focus:outline-none focus:ring-2 focus:ring-blue-500/30 w-32"
+                                        onBlur={() => {
+                                            if (!newTagName.trim()) setShowTagInput(false);
+                                        }}
+                                    />
+                                    <button
+                                        type="submit"
+                                        disabled={creatingTag || !newTagName.trim()}
+                                        className="px-3 py-1.5 rounded-full text-sm font-medium text-white bg-blue-500 hover:bg-blue-600 disabled:opacity-50"
+                                    >
+                                        添加
+                                    </button>
+                                </form>
+                            )}
+                        </div>
+                        <p className="text-xs text-gray-400 ml-1">
+                            已选择 {selectedTagIds.length} 个标签，点击标签可选中/取消
+                        </p>
+                    </div>
+
                     <div className="space-y-3">
                         <label className="block text-sm font-bold text-gray-700 ml-1">内容详情</label>
                         <textarea

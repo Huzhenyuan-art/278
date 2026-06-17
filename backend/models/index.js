@@ -2,6 +2,8 @@ const sequelize = require('../utils/db');
 const User = require('./user');
 const Article = require('./article');
 const Like = require('./like');
+const Tag = require('./tag');
+const ArticleTag = require('./articleTag');
 
 // Define Associations
 User.hasMany(Article, { foreignKey: 'authorId' });
@@ -12,6 +14,9 @@ Like.belongsTo(User, { foreignKey: 'userId' });
 
 Article.hasMany(Like, { foreignKey: 'articleId' });
 Like.belongsTo(Article, { foreignKey: 'articleId' });
+
+Article.belongsToMany(Tag, { through: ArticleTag, foreignKey: 'articleId', otherKey: 'tagId' });
+Tag.belongsToMany(Article, { through: ArticleTag, foreignKey: 'tagId', otherKey: 'articleId' });
 
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -45,5 +50,7 @@ module.exports = {
     User,
     Article,
     Like,
+    Tag,
+    ArticleTag,
     initDb
 };

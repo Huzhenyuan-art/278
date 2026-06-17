@@ -1,5 +1,5 @@
 const Router = require('koa-router');
-const { Article, User, Like } = require('../models');
+const { Article, User, Like, Tag, ArticleTag } = require('../models');
 const { verifyToken } = require('../utils/jwt');
 const { Op } = require('sequelize');
 
@@ -63,26 +63,74 @@ const attachLikeInfo = async (articles, userId) => {
     }));
 };
 
+const attachTagsToArticles = async (articles) => {
+    const articleIds = articles.map(a => a.id);
+    const articleTags = await ArticleTag.findAll({
+        where: { articleId: { [Op.in]: articleIds } },
+        include: [{ model: Tag, attributes: ['id', 'name', 'color'] }]
+    });
+    const tagsMap = {};
+    articleTags.forEach(at => {
+        if (!tagsMap[at.articleId]) {
+            tagsMap[at.articleId] = [];
+        }
+        if (at.tag) {
+            tagsMap[at.articleId].push(at.tag.toJSON());
+        }
+    });
+    return articles.map(article => {
+        const data = article.toJSON ? article.toJSON() : article;
+        return { ...data, tags: tagsMap[article.id] || [] };
+    });
+};
+
 // List all articles
 router.get('/', optionalAuthMiddleware, async (ctx) => {
+    const { tagId, tagName } = ctx.query;
+    let where = {};
+    let include = [{ model: User, attributes: ['username'] }];
+
+    if (tagId || tagName) {
+        let tagCondition = {};
+        if (tagId) tagCondition.id = tagId;
+        if (tagName) tagCondition.name = tagName;
+        include.push({
+            model: Tag,
+            where: tagCondition,
+            through: { attributes: [] },
+            attributes: []
+        });
+    }
+
     const articles = await Article.findAll({
-        include: [{ model: User, attributes: ['username'] }],
-        order: [['createdAt', 'DESC']]
+        where,
+        include,
+        order: [['createdAt', 'DESC']],
+        distinct: true
     });
+
+    const articlesWithTags = await attachTagsToArticles(articles);
     const userId = ctx.state.user?.id;
-    ctx.body = await attachLikeInfo(articles, userId);
+    const plainArticles = articlesWithTags.map(a => Article.build(a, { isNewRecord: false }));
+    const likedArticles = await attachLikeInfo(plainArticles, userId);
+
+    ctx.body = likedArticles.map((a, i) => ({ ...a, tags: articlesWithTags[i].tags }));
 });
 
 // Get single article
 router.get('/:id', optionalAuthMiddleware, async (ctx) => {
     const article = await Article.findByPk(ctx.params.id, {
-        include: [{ model: User, attributes: ['username'] }]
+        include: [
+            { model: User, attributes: ['username'] },
+            { model: Tag, through: { attributes: [] }, attributes: ['id', 'name', 'color'] }
+        ]
     });
     if (!article) {
         ctx.throw(404, '文章未找到');
     }
     const userId = ctx.state.user?.id;
     const [result] = await attachLikeInfo([article], userId);
+    result.tags = article.tags ? article.tags.map(t => t.toJSON()) : [];
     ctx.body = result;
 });
 
@@ -107,7 +155,7 @@ router.post('/:id/like', authMiddleware, async (ctx) => {
 
 // Create article
 router.post('/', authMiddleware, async (ctx) => {
-    const { title, content } = ctx.request.body;
+    const { title, content, tagIds } = ctx.request.body;
     if (!title || !content) {
         ctx.throw(400, '标题和内容为必填项');
     }
@@ -116,7 +164,20 @@ router.post('/', authMiddleware, async (ctx) => {
         content,
         authorId: ctx.state.user.id
     });
-    ctx.body = article;
+
+    if (tagIds && Array.isArray(tagIds) && tagIds.length > 0) {
+        const tags = await Tag.findAll({ where: { id: { [Op.in]: tagIds } } });
+        await article.addTags(tags);
+    }
+
+    const articleWithTags = await Article.findByPk(article.id, {
+        include: [{ model: Tag, through: { attributes: [] }, attributes: ['id', 'name', 'color'] }]
+    });
+
+    ctx.body = {
+        ...articleWithTags.toJSON(),
+        tags: articleWithTags.tags ? articleWithTags.tags.map(t => t.toJSON()) : []
+    };
 });
 
 // Update article
@@ -128,9 +189,29 @@ router.put('/:id', authMiddleware, async (ctx) => {
     if (article.authorId !== ctx.state.user.id) {
         ctx.throw(403, '权限不足');
     }
-    const { title, content, status } = ctx.request.body;
+    const { title, content, status, tagIds } = ctx.request.body;
     await article.update({ title, content, status });
-    ctx.body = article;
+
+    if (tagIds !== undefined) {
+        if (Array.isArray(tagIds) && tagIds.length > 0) {
+            const tags = await Tag.findAll({ where: { id: { [Op.in]: tagIds } } });
+            await article.setTags(tags);
+        } else {
+            await article.setTags([]);
+        }
+    }
+
+    const articleWithTags = await Article.findByPk(article.id, {
+        include: [
+            { model: User, attributes: ['username'] },
+            { model: Tag, through: { attributes: [] }, attributes: ['id', 'name', 'color'] }
+        ]
+    });
+
+    ctx.body = {
+        ...articleWithTags.toJSON(),
+        tags: articleWithTags.tags ? articleWithTags.tags.map(t => t.toJSON()) : []
+    };
 });
 
 // Delete article

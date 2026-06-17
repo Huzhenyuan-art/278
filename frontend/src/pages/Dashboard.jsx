@@ -1,17 +1,38 @@
 import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { HttpUtil } from '../utils/HttpUtil';
-import { Clock, User as UserIcon, ArrowRight, MessageSquare, Sparkles, TrendingUp, Heart } from 'lucide-react';
+import { Clock, User as UserIcon, ArrowRight, MessageSquare, Sparkles, TrendingUp, Heart, Tag, X } from 'lucide-react';
 
 const Dashboard = () => {
     const [articles, setArticles] = useState([]);
     const [loading, setLoading] = useState(true);
     const [likingIds, setLikingIds] = useState(new Set());
+    const [tags, setTags] = useState([]);
+    const [selectedTagId, setSelectedTagId] = useState(null);
+    const [tagsLoading, setTagsLoading] = useState(true);
+
+    useEffect(() => {
+        const fetchTags = async () => {
+            try {
+                const data = await HttpUtil.get('/tag');
+                setTags(data);
+            } catch (error) {
+                console.error("Failed to fetch tags", error);
+            } finally {
+                setTagsLoading(false);
+            }
+        };
+        fetchTags();
+    }, []);
 
     useEffect(() => {
         const fetchArticles = async () => {
+            setLoading(true);
             try {
-                const data = await HttpUtil.get('/article');
+                const url = selectedTagId
+                    ? `/article?tagId=${selectedTagId}`
+                    : '/article';
+                const data = await HttpUtil.get(url);
                 setArticles(data);
             } catch (error) {
                 console.error("Failed to fetch articles", error);
@@ -20,7 +41,11 @@ const Dashboard = () => {
             }
         };
         fetchArticles();
-    }, []);
+    }, [selectedTagId]);
+
+    const handleTagClick = (tagId) => {
+        setSelectedTagId(prev => prev === tagId ? null : tagId);
+    };
 
     const handleLike = async (e, articleId) => {
         e.preventDefault();
@@ -85,10 +110,52 @@ const Dashboard = () => {
             </header>
 
             <div className="max-w-7xl mx-auto w-full">
+                {/* Tag Filter Bar */}
+                <div className="mb-6 p-4 glass rounded-2xl border border-white/60">
+                    <div className="flex items-center gap-2 mb-3">
+                        <Tag size={18} className="text-indigo-500" />
+                        <span className="text-sm font-bold text-gray-700">标签筛选</span>
+                        {selectedTagId && (
+                            <button
+                                onClick={() => setSelectedTagId(null)}
+                                className="ml-auto inline-flex items-center gap-1 text-xs font-medium text-gray-500 hover:text-gray-700 transition-colors"
+                            >
+                                <X size={14} />
+                                清除筛选
+                            </button>
+                        )}
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                        {tagsLoading ? (
+                            <div className="text-sm text-gray-400">加载标签中...</div>
+                        ) : tags.length === 0 ? (
+                            <div className="text-sm text-gray-400">暂无标签</div>
+                        ) : (
+                            tags.map(tag => (
+                                <button
+                                    key={tag.id}
+                                    onClick={() => handleTagClick(tag.id)}
+                                    className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium transition-all duration-200 ${
+                                        selectedTagId === tag.id
+                                            ? 'text-white shadow-md scale-105'
+                                            : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                                    }`}
+                                    style={selectedTagId === tag.id ? { backgroundColor: tag.color } : {}}
+                                >
+                                    {tag.name}
+                                    <span className="opacity-75">
+                                        ({tag.articleCount || 0})
+                                    </span>
+                                </button>
+                            ))
+                        )}
+                    </div>
+                </div>
+
                 <div className="flex items-center justify-between pb-3 border-b border-gray-200/50 mb-6">
                     <h2 className="text-xl font-bold flex items-center gap-2 text-gray-800">
                         <TrendingUp size={20} className="text-indigo-500" />
-                        最新动态
+                        {selectedTagId ? '筛选结果' : '最新动态'}
                     </h2>
                     <span className="text-xs font-medium text-gray-500 bg-white/50 px-2.5 py-0.5 rounded-full border border-gray-100">
                         共 {articles.length} 篇文章
@@ -120,6 +187,25 @@ const Dashboard = () => {
                             <h3 className="text-lg font-bold text-gray-800 mb-2 group-hover:text-blue-600 transition-colors line-clamp-1 leading-tight">
                                 {article.title}
                             </h3>
+                            
+                            {article.tags && article.tags.length > 0 && (
+                                <div className="flex flex-wrap gap-1 mb-3">
+                                    {article.tags.slice(0, 3).map(tag => (
+                                        <span
+                                            key={tag.id}
+                                            className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium text-white"
+                                            style={{ backgroundColor: tag.color }}
+                                        >
+                                            {tag.name}
+                                        </span>
+                                    ))}
+                                    {article.tags.length > 3 && (
+                                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium text-gray-500 bg-gray-100">
+                                            +{article.tags.length - 3}
+                                        </span>
+                                    )}
+                                </div>
+                            )}
                             
                             <p className="text-gray-500 mb-4 flex-grow line-clamp-3 leading-relaxed text-sm">
                                 {article.content}

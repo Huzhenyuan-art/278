@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { HttpUtil } from '../utils/HttpUtil';
-import { User, Calendar, ArrowLeft, Trash2, Edit, Heart } from 'lucide-react';
+import { User, Calendar, ArrowLeft, Trash2, Edit, Heart, Tag } from 'lucide-react';
 import Modal from '../components/Modal';
 
 const ArticleDetail = () => {
@@ -96,6 +96,20 @@ const ArticleDetail = () => {
                         <h1 className="text-3xl md:text-5xl font-extrabold text-gray-900 leading-tight mb-6 tracking-tight">
                             {article.title}
                         </h1>
+                        {article.tags && article.tags.length > 0 && (
+                            <div className="flex flex-wrap justify-center gap-2 mb-6">
+                                {article.tags.map(tag => (
+                                    <span
+                                        key={tag.id}
+                                        className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-sm font-medium text-white shadow-sm"
+                                        style={{ backgroundColor: tag.color }}
+                                    >
+                                        <Tag size={12} />
+                                        {tag.name}
+                                    </span>
+                                ))}
+                            </div>
+                        )}
                         <div className="flex items-center justify-center gap-4 text-sm font-medium flex-wrap">
                             <span className="flex items-center gap-1.5 bg-white/60 backdrop-blur-md px-4 py-1.5 rounded-full text-blue-700 shadow-sm border border-white/50">
                                 <User size={14} /> {article.user?.username}
