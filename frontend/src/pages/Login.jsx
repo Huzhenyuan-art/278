@@ -7,24 +7,82 @@ import { Code2, ArrowRight, AlertCircle, Sparkles, Zap, ShieldCheck, Globe } fro
 const Login = () => {
     const navigate = useNavigate();
     const [formData, setFormData] = useState({ username: '', password: '' });
+    const [fieldErrors, setFieldErrors] = useState({ username: '', password: '' });
     const [error, setError] = useState('');
     const [loading, setLoading] = useState(false);
 
+    const validateField = (name, value) => {
+        switch (name) {
+            case 'username':
+                if (!value || value.trim() === '') {
+                    return '用户名和密码不能为空';
+                }
+                return '';
+            case 'password':
+                if (!value || value.trim() === '') {
+                    return '用户名和密码不能为空';
+                }
+                return '';
+            default:
+                return '';
+        }
+    };
+
+    const validateForm = () => {
+        const errors = { username: '', password: '' };
+        let hasError = false;
+
+        const usernameError = validateField('username', formData.username);
+        if (usernameError) {
+            errors.username = usernameError;
+            hasError = true;
+        }
+
+        const passwordError = validateField('password', formData.password);
+        if (passwordError) {
+            errors.password = passwordError;
+            hasError = true;
+        }
+
+        setFieldErrors(errors);
+        return !hasError;
+    };
+
     const handleChange = (e) => {
-        setFormData({ ...formData, [e.target.name]: e.target.value });
+        const { name, value } = e.target;
+        setFormData({ ...formData, [name]: value });
+        const fieldError = validateField(name, value);
+        setFieldErrors({ ...fieldErrors, [name]: fieldError });
+        if (error) {
+            setError('');
+        }
     };
 
     const handleSubmit = async (e) => {
         e.preventDefault();
         setLoading(true);
         setError('');
+
+        if (!validateForm()) {
+            setLoading(false);
+            return;
+        }
+
         try {
             const res = await HttpUtil.post('/auth/login', formData);
             localStorage.setItem('token', res.token);
             localStorage.setItem('user', JSON.stringify(res.user));
             navigate('/');
         } catch (err) {
-            setError(err.message || '登录失败，请检查用户名和密码');
+            const message = err.message || '用户名或密码错误';
+            if (message === '用户名和密码不能为空') {
+                setFieldErrors({
+                    username: formData.username ? '' : message,
+                    password: formData.password ? '' : message
+                });
+            } else {
+                setError(message);
+            }
         } finally {
             setLoading(false);
         }
@@ -99,12 +157,17 @@ const Login = () => {
                                 <input
                                     type="text"
                                     name="username"
-                                    required
-                                    className={authStyles.input}
+                                    className={fieldErrors.username ? authStyles.inputError : authStyles.input}
                                     placeholder="请输入用户名"
                                     value={formData.username}
                                     onChange={handleChange}
                                 />
+                                {fieldErrors.username && (
+                                    <div className={authStyles.fieldError}>
+                                        <AlertCircle size={12} />
+                                        <span>{fieldErrors.username}</span>
+                                    </div>
+                                )}
                             </div>
                             
                             <div className={authStyles.inputGroup}>
@@ -114,12 +177,17 @@ const Login = () => {
                                 <input
                                     type="password"
                                     name="password"
-                                    required
-                                    className={authStyles.input}
+                                    className={fieldErrors.password ? authStyles.inputError : authStyles.input}
                                     placeholder="请输入密码"
                                     value={formData.password}
                                     onChange={handleChange}
                                 />
+                                {fieldErrors.password && (
+                                    <div className={authStyles.fieldError}>
+                                        <AlertCircle size={12} />
+                                        <span>{fieldErrors.password}</span>
+                                    </div>
+                                )}
                             </div>
 
                             <button type="submit" className={authStyles.button} disabled={loading}>
