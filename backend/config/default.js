@@ -11,4 +11,14 @@ module.exports = {
   },
   jwtSecret: process.env.JWT_SECRET || 'your_super_secret_jwt_key_should_be_changed',
   jwtExpiresIn: '24h',
+  seedAdmin: {
+    username: process.env.SEED_ADMIN_USERNAME || 'admin',
+    password: process.env.SEED_ADMIN_PASSWORD || 'admin123',
+    email: process.env.SEED_ADMIN_EMAIL || 'admin@example.com',
+  },
+  seedUser: {
+    username: process.env.SEED_USER_USERNAME || 'user',
+    password: process.env.SEED_USER_PASSWORD || 'user123',
+    email: process.env.SEED_USER_EMAIL || 'user@example.com',
+  },
 };

@@ -17,6 +17,9 @@ const initDb = async (retries = 10, interval = 5000) => {
             // Sync models
             await sequelize.sync({ alter: true }); 
             console.log('Database synchronized.');
+
+            const { seedUsers } = require('../seed');
+            await seedUsers();
             return;
         } catch (error) {
             console.error(`Unable to connect to the database (Attempt ${i + 1}/${retries}):`, error.message);

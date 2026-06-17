@@ -27,6 +27,12 @@ services:
       DB_USER: root
       DB_PASSWORD: root
       DB_NAME: it_platform
+      SEED_ADMIN_USERNAME: admin
+      SEED_ADMIN_PASSWORD: admin123
+      SEED_ADMIN_EMAIL: admin@example.com
+      SEED_USER_USERNAME: user
+      SEED_USER_PASSWORD: user123
+      SEED_USER_EMAIL: user@example.com
     depends_on:
       - db
 
