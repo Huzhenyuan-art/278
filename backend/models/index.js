@@ -18,6 +18,11 @@ Like.belongsTo(Article, { foreignKey: 'articleId' });
 Article.belongsToMany(Tag, { through: ArticleTag, foreignKey: 'articleId', otherKey: 'tagId' });
 Tag.belongsToMany(Article, { through: ArticleTag, foreignKey: 'tagId', otherKey: 'articleId' });
 
+ArticleTag.belongsTo(Article, { foreignKey: 'articleId' });
+ArticleTag.belongsTo(Tag, { foreignKey: 'tagId' });
+Article.hasMany(ArticleTag, { foreignKey: 'articleId' });
+Tag.hasMany(ArticleTag, { foreignKey: 'tagId' });
+
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
 const initDb = async (retries = 10, interval = 5000) => {

@@ -67,7 +67,11 @@ const attachTagsToArticles = async (articles) => {
     const articleIds = articles.map(a => a.id);
     const articleTags = await ArticleTag.findAll({
         where: { articleId: { [Op.in]: articleIds } },
-        include: [{ model: Tag, attributes: ['id', 'name', 'color'] }]
+        include: [{
+            model: Tag,
+            attributes: ['id', 'name', 'color'],
+            required: false
+        }]
     });
     const tagsMap = {};
     articleTags.forEach(at => {
