@@ -1,0 +1,115 @@
+import React, { useEffect, useState } from 'react';
+import { useParams, useNavigate } from 'react-router-dom';
+import { HttpUtil } from '../utils/HttpUtil';
+import { User, Calendar, ArrowLeft, Trash2, Edit } from 'lucide-react';
+import Modal from '../components/Modal';
+
+const ArticleDetail = () => {
+    const { id } = useParams();
+    const navigate = useNavigate();
+    const [article, setArticle] = useState(null);
+    const [loading, setLoading] = useState(true);
+    const user = JSON.parse(localStorage.getItem('user') || '{}');
+
+    // Modal State
+    const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
+
+    useEffect(() => {
+        const fetchArticle = async () => {
+            try {
+                const data = await HttpUtil.get(`/article/${id}`);
+                setArticle(data);
+            } catch (error) {
+                console.error("Failed to fetch article", error);
+            } finally {
+                setLoading(false);
+            }
+        };
+        fetchArticle();
+    }, [id]);
+
+    const handleDelete = async () => {
+        try {
+            await HttpUtil.delete(`/article/${id}`);
+            navigate('/');
+        } catch (error) {
+            alert('删除失败: ' + error.message);
+        }
+    };
+
+    if (loading) return (
+         <div className="flex justify-center items-center h-[60vh]">
+            <div className="w-12 h-12 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin"></div>
+        </div>
+    );
+    if (!article) return <div className="text-center py-20 text-gray-500 font-medium">文章不存在</div>;
+
+    const isAuthor = user && user.id === article.authorId;
+
+    return (
+        <div className="max-w-4xl mx-auto space-y-6">
+            <Modal 
+                isOpen={isDeleteModalOpen}
+                onClose={() => setIsDeleteModalOpen(false)}
+                onConfirm={handleDelete}
+                title="确认删除"
+                message="确定要删除这篇文章吗？此操作将永久移除该内容，无法撤销。"
+            />
+
+            <button 
+                onClick={() => navigate(-1)} 
+                className="flex items-center text-gray-500 hover:text-gray-800 transition-colors bg-white/50 px-3 py-1.5 rounded-lg border border-transparent hover:border-gray-200"
+            >
+                <ArrowLeft size={18} className="mr-1" /> 返回列表
+            </button>
+
+            <article className="glass rounded-3xl overflow-hidden shadow-xl border border-white/60">
+                 <div className="relative h-64 bg-gradient-to-r from-blue-600/10 to-indigo-600/10 flex items-center justify-center overflow-hidden">
+                    <div className="absolute top-0 right-0 w-96 h-96 bg-blue-400/20 rounded-full blur-3xl -mr-32 -mt-32"></div>
+                    <div className="absolute bottom-0 left-0 w-80 h-80 bg-purple-400/20 rounded-full blur-3xl -ml-32 -mb-32"></div>
+                    
+                    <div className="relative z-10 p-10 text-center max-w-3xl">
+                        <h1 className="text-3xl md:text-5xl font-extrabold text-gray-900 leading-tight mb-6 tracking-tight">
+                            {article.title}
+                        </h1>
+                        <div className="flex items-center justify-center gap-4 text-sm font-medium">
+                            <span className="flex items-center gap-1.5 bg-white/60 backdrop-blur-md px-4 py-1.5 rounded-full text-blue-700 shadow-sm border border-white/50">
+                                <User size={14} /> {article.user?.username}
+                            </span>
+                            <span className="flex items-center gap-1.5 bg-white/60 backdrop-blur-md px-4 py-1.5 rounded-full text-gray-600 shadow-sm border border-white/50">
+                                <Calendar size={14} /> {new Date(article.createdAt).toLocaleDateString()}
+                            </span>
+                        </div>
+                    </div>
+                </div>
+
+                <div className="p-8 md:p-12 bg-white/50">
+                    <div className="prose prose-lg prose-blue prose-a:no-underline max-w-none text-gray-700 leading-relaxed">
+                        {article.content.split('\n').map((paragraph, idx) => (
+                             <p key={idx} className="mb-4">{paragraph}</p>
+                        ))}
+                    </div>
+                </div>
+
+                {isAuthor && (
+                    <div className="bg-gray-50/80 px-8 py-5 border-t border-gray-100 flex justify-end gap-3 backdrop-blur-md">
+                         <button 
+                            onClick={() => navigate(`/article/edit/${id}`)}
+                            className="flex items-center gap-2 px-5 py-2.5 rounded-xl text-gray-700 hover:bg-white hover:text-blue-600 hover:shadow-md transition-all border border-transparent hover:border-gray-100 font-medium"
+                        >
+                            <Edit size={18} /> 编辑
+                        </button>
+                        <button 
+                            onClick={() => setIsDeleteModalOpen(true)}
+                            className="flex items-center gap-2 px-5 py-2.5 rounded-xl text-red-500 hover:bg-red-50 hover:shadow-sm transition-all border border-transparent hover:border-red-100 font-medium"
+                        >
+                            <Trash2 size={18} /> 删除
+                        </button>
+                    </div>
+                )}
+            </article>
+        </div>
+    );
+};
+
+export default ArticleDetail;
