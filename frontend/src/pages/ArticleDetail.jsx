@@ -94,6 +94,15 @@ const ArticleDetail = () => {
                     <div className="absolute bottom-0 left-0 w-80 h-80 bg-purple-400/20 rounded-full blur-3xl -ml-32 -mb-32"></div>
                     
                     <div className="relative z-10 p-10 text-center max-w-3xl">
+                        <div className="flex justify-center mb-4">
+                            <span className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-bold ${
+                                article.status === 'draft'
+                                    ? 'bg-amber-100/80 text-amber-700 border border-amber-200'
+                                    : 'bg-emerald-100/80 text-emerald-700 border border-emerald-200'
+                            }`}>
+                                {article.status === 'draft' ? '草稿' : '已发布'}
+                            </span>
+                        </div>
                         <h1 className="text-3xl md:text-5xl font-extrabold text-gray-900 leading-tight mb-6 tracking-tight">
                             {article.title}
                         </h1>

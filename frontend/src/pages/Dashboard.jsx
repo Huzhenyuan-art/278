@@ -197,7 +197,7 @@ const Dashboard = () => {
                         >
                             <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-blue-500 to-indigo-600 transform scale-x-0 group-hover:scale-x-100 transition-transform duration-300 origin-left"></div>
                             
-                            <div className="flex items-center gap-3 mb-4">
+                            <div className="flex items-center gap-3 mb-3">
                                 <div className="w-8 h-8 rounded-lg bg-gradient-to-tr from-blue-50 to-indigo-50 flex items-center justify-center text-blue-600 font-bold text-xs ring-1 ring-black/5 shadow-inner">
                                     {article.user?.username?.charAt(0).toUpperCase()}
                                 </div>
@@ -208,6 +208,16 @@ const Dashboard = () => {
                                         {new Date(article.createdAt).toLocaleDateString()}
                                     </span>
                                 </div>
+                            </div>
+
+                            <div className="flex items-center gap-2 mb-2">
+                                <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                                    article.status === 'draft'
+                                        ? 'bg-amber-50 text-amber-600 border border-amber-200'
+                                        : 'bg-emerald-50 text-emerald-600 border border-emerald-200'
+                                }`}>
+                                    {article.status === 'draft' ? '草稿' : '已发布'}
+                                </span>
                             </div>
                             
                             <h3 className="text-lg font-bold text-gray-800 mb-2 group-hover:text-blue-600 transition-colors line-clamp-1 leading-tight">

@@ -6,7 +6,7 @@ import { PenTool, Save, ArrowLeft, Sparkles, Tag, Plus, X } from 'lucide-react';
 const ArticleEdit = () => {
     const { id } = useParams();
     const navigate = useNavigate();
-    const [formData, setFormData] = useState({ title: '', content: '' });
+    const [formData, setFormData] = useState({ title: '', content: '', status: 'published' });
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
     const [tags, setTags] = useState([]);
@@ -22,7 +22,11 @@ const ArticleEdit = () => {
                     HttpUtil.get(`/article/${id}`),
                     HttpUtil.get('/tag')
                 ]);
-                setFormData({ title: articleData.title, content: articleData.content });
+                setFormData({ 
+                    title: articleData.title, 
+                    content: articleData.content, 
+                    status: articleData.status || 'published' 
+                });
                 setTags(tagsData);
                 if (articleData.tags && articleData.tags.length > 0) {
                     setSelectedTagIds(articleData.tags.map(t => t.id));
@@ -180,6 +184,21 @@ const ArticleEdit = () => {
                         </div>
                         <p className="text-xs text-gray-400 ml-1">
                             已选择 {selectedTagIds.length} 个标签，点击标签可选中/取消
+                        </p>
+                    </div>
+
+                    <div className="space-y-3">
+                        <label className="block text-sm font-bold text-gray-700 ml-1">文章状态</label>
+                        <select
+                            value={formData.status}
+                            onChange={e => setFormData({...formData, status: e.target.value})}
+                            className="w-full px-6 py-4 rounded-2xl border border-gray-200 bg-white/50 focus:bg-white focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 outline-none transition-all duration-300 text-gray-700 font-medium cursor-pointer"
+                        >
+                            <option value="published">已发布</option>
+                            <option value="draft">草稿</option>
+                        </select>
+                        <p className="text-xs text-gray-400 ml-1">
+                            「草稿」状态的文章仅您自己可见
                         </p>
                     </div>
 
