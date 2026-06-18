@@ -43,6 +43,9 @@ app.use(commentRoutes.routes()).use(commentRoutes.allowedMethods());
 app.use(async ctx => {
     if (ctx.path === '/') {
         ctx.body = 'Hello Koa 5160';
+    } else {
+        ctx.status = 404;
+        ctx.body = { error: 'API 接口不存在', path: ctx.path };
     }
 });
 

@@ -875,3 +875,247 @@ if (article.status === 'draft' && article.authorId !== userId) {
 
 **文档版本**：v1.0（文章状态与草稿修复）  
 **最后更新**：2026-06-18
+
+---
+
+# 登录时 JSON 解析错误修复指南
+
+## 文档信息
+
+| 项目 | 内容 |
+|------|------|
+| **问题编号** | FIX-004 |
+| **问题类型** | 前端错误处理不完善 / 后端 404 响应非 JSON |
+| **涉及模块** | 前端 HttpUtil / 后端 app.js |
+| **发现日期** | 2026-06-18 |
+| **修复日期** | 2026-06-18 |
+| **修复人员** | AI Assistant |
+
+---
+
+## 1. 问题现象
+
+### 1.1 用户反馈
+用户登录时页面弹出错误提示：
+```
+Unexpected token '<', "<html> <h"... is not valid JSON
+```
+
+### 1.2 技术分析
+
+这个错误的含义是：**前端期望从后端获取 JSON 响应，但实际收到的是 HTML（以 `<html>` 开头）**，导致 `response.json()` 解析失败。
+
+#### 可能触发场景
+
+| 场景 | 原因 | 返回内容 |
+|------|------|---------|
+| 后端服务未启动 | Docker 后端容器挂了 | Nginx 502 错误页（HTML） |
+| Nginx 配置错误 | `/api/` 代理规则失效 | Nginx 404 错误页（HTML） |
+| 后端路由未匹配 | 请求路径写错 | Koa 默认响应（可能非 JSON） |
+| 网络中断 | 浏览器无法连接服务器 | `Failed to fetch` 异常 |
+
+---
+
+## 2. 根本原因
+
+### 2.1 前端问题（主要）
+
+**文件**：[HttpUtil.js](file:///d:/Desktop/新建文件夹 (2)/278-20260128-123520/278/frontend/src/utils/HttpUtil.js)
+
+原有代码直接调用 `response.json()`，没有做 Content-Type 检查：
+```javascript
+const response = await fetch(url, config);
+const data = await response.json();  // ❌ 如果 response 是 HTML，这里直接抛错
+```
+
+### 2.2 后端问题（次要）
+
+**文件**：[app.js](file:///d:/Desktop/新建文件夹 (2)/278-20260128-123520/278/backend/app.js)
+
+原有 fallback 路由只处理了 `/` 路径，其他未匹配路径会由 Koa 默认返回 HTML 格式的 404 页面：
+```javascript
+app.use(async ctx => {
+    if (ctx.path === '/') {
+        ctx.body = 'Hello Koa 5160';
+    }
+    // 其他路径 → Koa 默认返回 HTML 404
+});
+```
+
+---
+
+## 3. 修复方案
+
+### 3.1 前端：HttpUtil 三重加固
+
+#### 新增 `parseResponse` 方法
+
+**设计思路**：在解析响应前做层层校验，确保任何情况下都给用户友好的中文提示。
+
+```
+请求响应 → Content-Type 检查 → 是 JSON? → 是 → response.json()
+                           → 否 → 读取文本 → 以 < 开头? → 是 → 抛出"服务器连接异常"
+                                                   → 否 → 尝试 JSON.parse → 成功 → 返回
+                                                                           → 失败 → 抛出"响应格式错误"
+```
+
+**关键代码**：
+```javascript
+static async parseResponse(response) {
+    const contentType = response.headers.get('content-type') || '';
+    
+    // 1. 优先检查 Content-Type
+    if (contentType.includes('application/json')) {
+        return await response.json();
+    }
+    
+    // 2. 读取文本判断是否为 HTML
+    const text = await response.text();
+    if (text.trim().startsWith('<')) {
+        console.warn('Server returned HTML instead of JSON:', text.substring(0, 200));
+        throw new Error('服务器连接异常，请稍后重试');
+    }
+    
+    // 3. 最后尝试兜底解析
+    try {
+        return JSON.parse(text);
+    } catch {
+        throw new Error('服务器响应格式错误');
+    }
+}
+```
+
+#### 外层 catch 兜底
+
+在 `request` 方法的 catch 中，对已知错误类型做二次包装：
+```javascript
+catch (error) {
+    console.error('API Request Error:', error);
+    
+    // JSON 解析错误 → 友好提示
+    if (error.name === 'SyntaxError' || error.message.includes('JSON')) {
+        throw new Error('服务器连接异常，请稍后重试');
+    }
+    
+    // 网络连接失败
+    if (error.message === 'Failed to fetch') {
+        throw new Error('无法连接到服务器，请检查网络');
+    }
+    
+    throw error;
+}
+```
+
+#### 额外加固：401 时同时清理 user 数据
+
+原有代码只清了 `token`，但 `user` 对象还在 localStorage，会导致页面显示已登录但实际已失效：
+```javascript
+if (response.status === 401) {
+    localStorage.removeItem('token');
+    localStorage.removeItem('user');  // ✅ 新增：同步清理 user 信息
+    // ... 跳转登录
+}
+```
+
+---
+
+### 3.2 后端：404 统一返回 JSON
+
+**修改文件**：[app.js](file:///d:/Desktop/新建文件夹 (2)/278-20260128-123520/278/backend/app.js#L43-L50)
+
+确保所有未匹配路径都返回 JSON 格式的错误响应：
+```javascript
+app.use(async ctx => {
+    if (ctx.path === '/') {
+        ctx.body = 'Hello Koa 5160';
+    } else {
+        ctx.status = 404;
+        ctx.body = { error: 'API 接口不存在', path: ctx.path };  // ✅ JSON 格式
+    }
+});
+```
+
+---
+
+## 4. 修复后的用户体验对比
+
+| 场景 | 修复前 | 修复后 |
+|------|--------|--------|
+| 后端正常、密码错误 | ❌ `用户名或密码错误`（正常） | ✅ 保持不变 |
+| 后端服务挂了（Nginx 502） | ❌ `Unexpected token '<', "<html>..."` | ✅ `服务器连接异常，请稍后重试` |
+| 网络断开 | ❌ `Failed to fetch` | ✅ `无法连接到服务器，请检查网络` |
+| 访问不存在的 API | ❌ 可能返回 HTML 解析错误 | ✅ `API 接口不存在` |
+| 响应格式异常 | ❌ `Unexpected token ...` | ✅ `服务器响应格式错误` |
+
+---
+
+## 5. 错误处理分层架构
+
+```
+┌──────────────────────────────────────────────────┐
+│  第 1 层：后端错误处理中间件                        │
+│  - app.js 全局 try/catch，返回 JSON 错误            │
+│  - 404 fallback 统一返回 JSON                       │
+├──────────────────────────────────────────────────┤
+│  第 2 层：各路由内部 try/catch                      │
+│  - user.js / article.js 等自行捕获，设置 status     │
+│  - 返回 { error: message } 格式                     │
+├──────────────────────────────────────────────────┤
+│  第 3 层：前端 HttpUtil.parseResponse              │
+│  - Content-Type 校验                                │
+│  - HTML 检测与拦截                                  │
+│  - 兜底 JSON 解析                                   │
+├──────────────────────────────────────────────────┤
+│  第 4 层：前端 HttpUtil.request catch              │
+│  - 网络错误识别                                    │
+│  - JSON 解析错误降级                                │
+│  - 401 自动清理+跳转                                │
+├──────────────────────────────────────────────────┤
+│  第 5 层：业务页面 catch                            │
+│  - Login / Register 显示红色错误卡片                │
+│  - 展示用户友好的中文提示                           │
+└──────────────────────────────────────────────────┘
+```
+
+---
+
+## 6. 验证步骤
+
+### 6.1 代码静态验证
+- `frontend/src/utils/HttpUtil.js` → ✅ 无语法错误
+- `backend/app.js` → ✅ 无语法错误
+
+### 6.2 运行时验证（Docker 启动后）
+
+| # | 场景 | 操作步骤 | 预期结果 |
+|---|------|---------|---------|
+| 1 | 正常登录 | 输入正确账号密码 | 登录成功，跳转首页 |
+| 2 | 密码错误 | 输入正确账号+错误密码 | 红色卡片显示「用户名或密码错误」 |
+| 3 | **后端未启动** | `docker compose stop backend` → 尝试登录 | 红色卡片显示「服务器连接异常，请稍后重试」，**不出现** `Unexpected token '<'` |
+| 4 | **网络错误** | 浏览器 DevTools → Network → Offline → 尝试登录 | 红色卡片显示「无法连接到服务器，请检查网络」 |
+| 5 | 401 自动清理 | 登录后 → 后端删 token → 刷新页面 → 操作 | 自动跳转到登录页，localStorage 中 `token` 和 `user` 都被清理 |
+| 6 | 错误路径 API | 用 HTTP 客户端访问 `/api/non-existent` | 返回 JSON：`{"error":"API 接口不存在","path":"/non-existent"}` |
+
+---
+
+## 7. 修改文件清单
+
+| 文件 | 修改类型 | 说明 |
+|------|----------|------|
+| `frontend/src/utils/HttpUtil.js` | 🔧 加固 | 新增 `parseResponse` 方法；catch 中增加错误类型识别；401 时同步清理 user |
+| `backend/app.js` | 🔧 完善 | 404 fallback 返回 JSON 格式错误 |
+| `FIX_GUIDE.md` | 📝 文档 | 追加本次 FIX-004 记录 |
+
+---
+
+## 8. 后续可扩展方向
+
+1. **请求重试机制**：对 5xx 错误自动重试 1-2 次（指数退避）
+2. **请求超时**：`fetch` 原生不支持超时，可封装 `AbortController` 实现
+3. **全局错误监控**：接入 Sentry 等 APM 工具，收集线上解析错误
+4. **接口健康检查**：前端启动时 ping `/api/health` 接口，提前发现后端不可用
+
+---
+
+**文档版本**：v1.0（登录 JSON 解析错误修复）  
+**最后更新**：2026-06-18
