@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { HttpUtil } from '../utils/HttpUtil';
+import { formatDate, getDateTimestamp } from '../utils/dateUtils';
 import { Shield, Edit3, Eye, Clock, User as UserIcon, Trash2, Search, Filter, ArrowUpDown, FileText, AlertTriangle } from 'lucide-react';
 
 const AdminDashboard = () => {
@@ -82,8 +83,8 @@ const AdminDashboard = () => {
                     break;
                 case 'createdAt':
                 default:
-                    aVal = new Date(a.createdAt).getTime();
-                    bVal = new Date(b.createdAt).getTime();
+                    aVal = getDateTimestamp(a.createdAt);
+                    bVal = getDateTimestamp(b.createdAt);
             }
             if (sortOrder === 'asc') {
                 return aVal > bVal ? 1 : -1;
@@ -339,7 +340,7 @@ const AdminDashboard = () => {
                                         <td className="px-6 py-4 hidden lg:table-cell">
                                             <div className="flex items-center gap-1.5 text-gray-500">
                                                 <Clock size={13} />
-                                                <span className="text-xs font-medium">{new Date(article.createdAt).toLocaleDateString()}</span>
+                                                <span className="text-xs font-medium">{formatDate(article.createdAt)}</span>
                                             </div>
                                         </td>
                                         <td className="px-6 py-4">

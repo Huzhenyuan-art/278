@@ -1,23 +1,12 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { HttpUtil } from '../utils/HttpUtil';
+import { formatRelativeTime } from '../utils/dateUtils';
 import { MessageSquare, Send, Trash2, Loader2, User as UserIcon, ChevronDown, Edit2, Reply, X, Check } from 'lucide-react';
 import Modal from './Modal';
 import DOMPurify from 'dompurify';
 
 const PAGE_SIZE = 5;
-
-const formatTime = (dateStr) => {
-    if (!dateStr) return '';
-    const d = new Date(dateStr);
-    const now = new Date();
-    const diff = (now - d) / 1000;
-    if (diff < 60) return '刚刚';
-    if (diff < 3600) return `${Math.floor(diff / 60)} 分钟前`;
-    if (diff < 86400) return `${Math.floor(diff / 3600)} 小时前`;
-    if (diff < 2592000) return `${Math.floor(diff / 86400)} 天前`;
-    return d.toLocaleDateString();
-};
 
 // ---------- Tree helpers (immutable) ----------
 
@@ -155,7 +144,7 @@ const CommentItem = ({ comment, depth, articleId, onReplySubmit, onEditSubmit, o
                                 </Link>
                             </span>
                         )}
-                        <span className="text-[11px] text-gray-400">{formatTime(comment.createdAt)}</span>
+                        <span className="text-[11px] text-gray-400">{formatRelativeTime(comment.createdAt)}</span>
                     </div>
 
                     {isEditingThis ? (

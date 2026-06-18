@@ -1374,3 +1374,248 @@ const article = await Article.create({
 
 **文档版本**：v1.0（创建文章 status 字段遗漏修复）  
 **最后更新**：2026-06-18
+
+---
+
+# 管理页面文章列表创建时间显示 Invalid Date 修复指南
+
+## 文档信息
+
+| 项目 | 内容 |
+|------|------|
+| **问题编号** | FIX-007 |
+| **问题类型** | 前端日期解析兼容性问题 |
+| **影响范围** | 管理控制台 / 首页文章列表 / 文章详情页 / 评论区（所有调用 `new Date(x).toLocaleDateString()` 的位置） |
+| **发现日期** | 2026-06-18 |
+| **修复日期** | 2026-06-18 |
+| **修复人员** | AI Assistant |
+
+---
+
+## 1. 问题现象
+
+### 1.1 用户反馈
+
+管理控制台文章列表的「创建时间」列显示为：
+```
+Invalid Date
+```
+
+其他页面（首页卡片、详情页、评论区）在相同数据条件下也可能出现同样的问题。
+
+### 1.2 触发条件
+
+当后端返回的 `createdAt` / `updatedAt` 等时间字段**不是浏览器 `Date` 构造函数可直接解析的标准 ISO 格式**时，`new Date(createdAt)` 返回一个内部值为 `NaN` 的 Invalid Date 对象，再调用 `.toLocaleDateString()` 就会输出字符串 `"Invalid Date"`。
+
+可能的异常格式包括：
+
+| 格式 | 示例 | 是否能被所有浏览器直接解析 |
+|------|------|---------------------------|
+| SQLite 默认 `YYYY-MM-DD HH:MM:SS` | `2024-01-15 10:30:00` | ❌ 部分 Safari / 旧浏览器不识别空格分隔 |
+| 斜杠分隔 `YYYY/MM/DD` | `2024/01/15 10:30:00` | ❌ 非标准 |
+| 纯数字时间戳（字符串或数字） | `1705312200000` | ⚠️ 字符串形式需要先 `parseInt` |
+| `null` / `undefined` / 空字符串 | — | ❌ `new Date(null)` 是 1970 年，不是「无数据」 |
+| 已损坏的 ISO 字符串 | `2024-01-15T` | ❌ |
+
+---
+
+## 2. 根本原因
+
+### 2.1 直接原因
+
+前端所有日期格式化均直接使用：
+```javascript
+new Date(article.createdAt).toLocaleDateString()
+```
+没有做任何**前置校验、格式归一化、错误兜底**。只要后端返回的字符串不完全是 RFC3339 / ISO 8601 标准格式，就会触发 Invalid Date。
+
+### 2.2 数据流路径
+
+```
+SQLite 数据库 (DATETIME 默认存 YYYY-MM-DD HH:MM:SS)
+     ↓
+Sequelize ORM → JSON 序列化 (不同方言/版本行为不同)
+     ↓
+HTTP 响应 (application/json)
+     ↓
+前端 fetch → response.json()
+     ↓
+article.createdAt  ← 可能是字符串/数字/null
+     ↓
+new Date(article.createdAt)  ← ❌ 非标准格式 → Invalid Date
+     ↓
+.toLocaleDateString()
+     ↓
+"Invalid Date"
+```
+
+### 2.3 为什么只在「管理页面」被发现？
+
+首页 Dashboard 也是同样的代码，但由于管理员通常最先、最频繁地在管理台浏览完整列表（含所有用户、所有状态、所有时间跨度），因此问题率先在这里暴露。根本原因是全项目通用的问题。
+
+---
+
+## 3. 修复方案
+
+### 3.1 总体思路
+
+**不修复单个页面，而是抽一层通用工具函数**，所有前端日期相关操作统一走这层：
+
+```
+任何日期输入 (字符串/数字/Date/null/undefined)
+        ↓
+  parseDate() — 类型识别 + 格式归一化 + 多次兜底尝试
+        ↓
+  Date 对象 或 null（解析失败）
+        ↓
+  formatDate() / getDateTimestamp() / formatRelativeTime()
+        ↓
+  安全的字符串输出（解析失败返回 '-' 等占位符）
+```
+
+### 3.2 新增工具文件
+
+**文件**：[dateUtils.js](file:///d:/Desktop/新建文件夹 (2)/278-20260128-123520/278/frontend/src/utils/dateUtils.js)
+
+#### `parseDate(dateInput)` — 核心解析器
+
+支持以下所有输入类型，并做了层层兜底：
+
+| 输入类型 | 处理逻辑 |
+|---------|---------|
+| `null` / `undefined` / `''` | 直接返回 `null` |
+| `Date` 实例 | `isNaN(getTime())` 校验后返回 |
+| `number`（数字时间戳） | `new Date(number)`，校验后返回 |
+| 纯数字字符串（`/^\d+$/`） | 先 `parseInt` 再转 Date |
+| `YYYY-MM-DD HH:MM:SS`（SQLite 格式） | 把空格替换为 `T` 再解析 |
+| `YYYY/MM/DD...`（斜杠格式） | 把 `/` 替换为 `-`，必要时再补 `T` |
+| 其他任意字符串 | 先尝试归一化后的字符串；失败再原样 `new Date(str)` 最后尝试 |
+| 以上均失败 | 返回 `null` |
+
+#### `formatDate(dateInput, options)` — 格式化日期
+
+- `options.showTime`：是否显示时间（默认 `false`，只显示日期）
+- `options.fallback`：解析失败时的占位符（默认 `'-'`）
+- 最外层用 `try/catch` 兜底，确保即使 `toLocaleDateString()` 在旧浏览器抛异常也不会崩 UI
+
+#### `getDateTimestamp(dateInput)` — 排序用时间戳
+
+- 解析失败返回 `0`（保证排序时始终是一个合法数字，不会得到 `NaN` 导致排序错乱）
+
+#### `formatRelativeTime(dateInput)` — 相对时间（「xx 分钟前」等）
+
+- 把原 `CommentSection.jsx` 内部的 `formatTime` 统一收敛到这里
+- 超过 30 天自动降级为 `formatDate()`
+
+### 3.3 各页面替换调用点
+
+| 文件 | 替换前 | 替换后 |
+|------|--------|--------|
+| [AdminDashboard.jsx](file:///d:/Desktop/新建文件夹 (2)/278-20260128-123520/278/frontend/src/pages/AdminDashboard.jsx#L343) 显示 | `new Date(article.createdAt).toLocaleDateString()` | `formatDate(article.createdAt)` |
+| [AdminDashboard.jsx](file:///d:/Desktop/新建文件夹 (2)/278-20260128-123520/278/frontend/src/pages/AdminDashboard.jsx#L86) 排序 | `new Date(a.createdAt).getTime()` | `getDateTimestamp(a.createdAt)` |
+| [Dashboard.jsx](file:///d:/Desktop/新建文件夹 (2)/278-20260128-123520/278/frontend/src/pages/Dashboard.jsx#L223) 卡片时间 | `new Date(article.createdAt).toLocaleDateString()` | `formatDate(article.createdAt)` |
+| [ArticleDetail.jsx](file:///d:/Desktop/新建文件夹 (2)/278-20260128-123520/278/frontend/src/pages/ArticleDetail.jsx#L129) 详情时间 | `new Date(article.createdAt).toLocaleDateString()` | `formatDate(article.createdAt)` |
+| [CommentSection.jsx](file:///d:/Desktop/新建文件夹 (2)/278-20260128-123520/278/frontend/src/components/CommentSection.jsx#L147) 评论时间 | 内部 `formatTime()`（直接调用 `new Date`） | `formatRelativeTime()` |
+
+同时在 `CommentSection.jsx` 中**删除了原来的局部 `formatTime` 函数**，避免重复代码，后续只维护 `utils/dateUtils.js` 这一份。
+
+---
+
+## 4. 为什么不能只修 AdminDashboard？
+
+1. **所有页面都用了同样的错误写法**，首页和详情页只是暂时没碰到异常数据而已。
+2. **排序也会受影响**：`new Date(xxx).getTime()` 返回 `NaN` 时，`Array.sort` 的行为在不同 JS 引擎上不一致，可能导致列表顺序错乱、死循环或页面卡住。
+3. **评论区同样有风险**：CommentSection 原来的 `formatTime` 同样没有兜底。
+4. **未来新页面**：抽成工具后，新人开发时直接 `import { formatDate } from 'utils/dateUtils'` 就自动继承了所有兼容性处理。
+
+---
+
+## 5. 验证步骤
+
+### 5.1 代码静态验证
+- `frontend/src/utils/dateUtils.js` → ✅ 无语法错误
+- `frontend/src/pages/AdminDashboard.jsx` → ✅ 无语法错误
+- `frontend/src/pages/Dashboard.jsx` → ✅ 无语法错误
+- `frontend/src/pages/ArticleDetail.jsx` → ✅ 无语法错误
+- `frontend/src/components/CommentSection.jsx` → ✅ 无语法错误
+
+### 5.2 单测级场景验证（可在浏览器 Console 手动验证）
+
+打开前端页面，在 DevTools Console 中执行：
+
+```javascript
+// 模拟引入
+const { parseDate, formatDate, getDateTimestamp, formatRelativeTime } = await import('/src/utils/dateUtils.js');
+
+// 1. 标准 ISO 字符串（后端正常情况）
+console.log(formatDate('2024-01-15T10:30:00.000Z'));  // ✅ 应显示本地日期
+
+// 2. SQLite 空格分隔格式（本次问题的核心场景）
+console.log(formatDate('2024-01-15 10:30:00'));       // ✅ 不应再出现 Invalid Date
+
+// 3. 斜杠分隔
+console.log(formatDate('2024/01/15 10:30:00'));       // ✅ 正常显示
+
+// 4. 纯数字字符串时间戳
+console.log(formatDate('1705312200000'));             // ✅ 正常显示
+
+// 5. 数字时间戳
+console.log(formatDate(1705312200000));               // ✅ 正常显示
+
+// 6. 空值
+console.log(formatDate(null));     // ✅ '-'
+console.log(formatDate(''));       // ✅ '-'
+console.log(formatDate(undefined));// ✅ '-'
+
+// 7. 非法字符串
+console.log(formatDate('not-a-date'));  // ✅ '-'
+
+// 8. 排序时间戳不应出现 NaN
+console.log(getDateTimestamp('not-a-date'));  // ✅ 0
+console.log(getDateTimestamp('2024-01-15 10:30:00'));  // ✅ 合法数字
+```
+
+### 5.3 集成验证
+
+| # | 场景 | 操作步骤 | 预期结果 |
+|---|------|---------|---------|
+| 1 | 管理台时间列 | 以 admin 登录 → 进入 /admin | 创建时间列显示具体日期，**不出现** `Invalid Date` |
+| 2 | 首页卡片时间 | 首页浏览 | 每张卡片作者下方显示日期，无不正常文字 |
+| 3 | 文章详情页时间 | 打开任意文章 | 顶部「日历」图标旁显示日期 |
+| 4 | 评论区时间 | 打开有评论的文章 | 评论下方显示「刚刚 / x 分钟前 / x 天前 / 具体日期」，无不正常文字 |
+| 5 | 管理台按时间排序 | 管理台点「创建时间」表头切换排序 | 升序/降序均正确，不出现 `NaN` 导致的乱序 |
+| 6 | 占位符渲染 | 手动构造一条 createdAt 为 null 的数据（可临时改 mock） | 时间位置显示 `-`，页面不白屏不报错 |
+
+---
+
+## 6. 修改文件清单
+
+| 文件 | 修改类型 | 说明 |
+|------|----------|------|
+| `frontend/src/utils/dateUtils.js` | ➕ 新增 | 通用日期工具：`parseDate`、`formatDate`、`getDateTimestamp`、`formatRelativeTime` |
+| `frontend/src/pages/AdminDashboard.jsx` | 🔧 修复 | 引入 `formatDate`/`getDateTimestamp`，替换所有直接 `new Date(...).toLocaleDateString()` / `.getTime()` |
+| `frontend/src/pages/Dashboard.jsx` | 🔧 修复 | 引入 `formatDate`，替换卡片时间显示 |
+| `frontend/src/pages/ArticleDetail.jsx` | 🔧 修复 | 引入 `formatDate`，替换详情页时间显示 |
+| `frontend/src/components/CommentSection.jsx` | 🔧 重构 | 删除局部 `formatTime` 函数，改用 `utils/dateUtils` 的 `formatRelativeTime` |
+| `FIX_GUIDE.md` | 📝 文档 | 追加本次 FIX-007 记录 |
+
+---
+
+## 7. 预防措施
+
+### 7.1 开发规范
+
+1. **禁止**在业务代码中直接写 `new Date(x).toLocaleDateString()`、`new Date(x).getTime()`，统一走 `utils/dateUtils`。
+2. 新增工具函数时必须**处理 null/undefined/非法输入**，并提供 fallback。
+3. 日期格式化相关的 bug 修复**必须同时更新所有页面**，不能只修用户报告的那一个。
+
+### 7.2 后续可优化
+
+1. **后端统一格式化**：在后端序列化时保证所有时间字段输出标准 ISO 字符串（`toISOString()`），从源头消除格式歧义。
+2. **时区处理**：当前使用 `toLocaleDateString()` 走浏览器本地时区，如需跨时区统一显示，可在 `formatDate` 中增加时区参数。
+3. **国际化（i18n）**：`toLocaleDateString()` 已天然支持多语言，后续接入 i18n 框架时只需在 `formatDate` 里传 `locales` 和 `options` 即可，业务代码无需改动。
+
+---
+
+**文档版本**：v1.0（Invalid Date 兼容修复）  
+**最后更新**：2026-06-18

@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { HttpUtil } from '../utils/HttpUtil';
+import { formatDate } from '../utils/dateUtils';
 import { User, Calendar, ArrowLeft, Trash2, Edit, Heart, Tag } from 'lucide-react';
 import Modal from '../components/Modal';
 import CommentSection from '../components/CommentSection';
@@ -125,7 +126,7 @@ const ArticleDetail = () => {
                                 <User size={14} /> {article.user?.username}
                             </span>
                             <span className="flex items-center gap-1.5 bg-white/60 backdrop-blur-md px-4 py-1.5 rounded-full text-gray-600 shadow-sm border border-white/50">
-                                <Calendar size={14} /> {new Date(article.createdAt).toLocaleDateString()}
+                                <Calendar size={14} /> {formatDate(article.createdAt)}
                             </span>
                             <button
                                 onClick={handleLike}

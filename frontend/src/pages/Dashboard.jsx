@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { HttpUtil } from '../utils/HttpUtil';
+import { formatDate } from '../utils/dateUtils';
 import { Clock, User as UserIcon, ArrowRight, MessageSquare, Sparkles, TrendingUp, Heart, Tag, X, ArrowDown, ArrowUp } from 'lucide-react';
 
 const Dashboard = () => {
@@ -219,7 +220,7 @@ const Dashboard = () => {
                                     <span className="text-xs font-bold text-gray-700">{article.user?.username}</span>
                                     <span className="text-[10px] text-gray-400 font-medium flex items-center gap-1">
                                         <Clock size={10} />
-                                        {new Date(article.createdAt).toLocaleDateString()}
+                                        {formatDate(article.createdAt)}
                                     </span>
                                 </div>
                             </div>
