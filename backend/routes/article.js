@@ -129,7 +129,6 @@ router.get('/', optionalAuthMiddleware, async (ctx) => {
     });
 
     const articlesWithTags = await attachTagsToArticles(articles);
-    const userId = ctx.state.user?.id;
     const plainArticles = articlesWithTags.map(a => Article.build(a, { isNewRecord: false }));
     const likedArticles = await attachLikeInfo(plainArticles, userId);
 

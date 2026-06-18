@@ -1119,3 +1119,129 @@ app.use(async ctx => {
 
 **文档版本**：v1.0（登录 JSON 解析错误修复）  
 **最后更新**：2026-06-18
+
+---
+
+# 后端 userId 重复声明导致启动崩溃修复指南
+
+## 文档信息
+
+| 项目 | 内容 |
+|------|------|
+| **问题编号** | FIX-005 |
+| **问题类型** | JavaScript SyntaxError — 变量重复声明 |
+| **影响范围** | 后端所有接口均不可用（服务启动失败） |
+| **发现日期** | 2026-06-18 |
+| **修复日期** | 2026-06-18 |
+| **修复人员** | AI Assistant |
+
+---
+
+## 1. 问题现象
+
+### 1.1 用户反馈
+用户登录时前端提示：`服务器连接异常，请稍后重试`（此为 FIX-004 加固后的友好提示）。
+
+### 1.2 后端日志
+```
+SyntaxError: Identifier 'userId' has already been declared
+```
+
+### 1.3 影响
+后端服务因语法错误无法启动，**所有 API 接口均不可用**，不仅仅是登录。Nginx 代理到后端时收到连接拒绝或超时，返回 502 HTML 错误页。
+
+---
+
+## 2. 根本原因
+
+### 2.1 直接原因
+
+在 FIX-003 修复草稿可见性时，在 `GET /` 列表接口的函数作用域内**新增了 `const userId`**（第 94 行），但原代码中**已存在同名的 `const userId`**（第 132 行），导致同一作用域内变量重复声明。
+
+### 2.2 代码对比
+
+**文件**：[article.js](file:///d:/Desktop/新建文件夹 (2)/278-20260128-123520/278/backend/routes/article.js#L91-L136)
+
+```javascript
+router.get('/', optionalAuthMiddleware, async (ctx) => {
+    const { tagId, tagName, sort } = ctx.query;
+    const userId = ctx.state.user?.id;        // ← FIX-003 新增的声明（第 94 行）
+    
+    let where = {};
+    if (userId) { ... }
+    
+    // ... 中间省略查询逻辑 ...
+
+    const articlesWithTags = await attachTagsToArticles(articles);
+    const userId = ctx.state.user?.id;        // ← 原有的声明（第 132 行）❌ 重复！
+    const plainArticles = articlesWithTags.map(a => Article.build(a, { isNewRecord: false }));
+    const likedArticles = await attachLikeInfo(plainArticles, userId);
+    // ...
+});
+```
+
+### 2.3 JavaScript 规则
+
+`const` 和 `let` 声明不允许在同一作用域内重复声明同名变量，这是语法层面的硬性限制，Node.js 在**加载模块时**就会报错，不进入任何运行时阶段。
+
+---
+
+## 3. 修复方案
+
+### 3.1 删除重复声明
+
+第 94 行的 `userId` 已经覆盖了列表接口后续所有使用场景，第 132 行的重复声明是冗余的。直接删除即可。
+
+**修改前**：
+```javascript
+const articlesWithTags = await attachTagsToArticles(articles);
+const userId = ctx.state.user?.id;           // ❌ 重复声明
+const plainArticles = articlesWithTags.map(...);
+const likedArticles = await attachLikeInfo(plainArticles, userId);
+```
+
+**修改后**：
+```javascript
+const articlesWithTags = await attachTagsToArticles(articles);
+const plainArticles = articlesWithTags.map(...);
+const likedArticles = await attachLikeInfo(plainArticles, userId);  // ✅ 复用第 94 行的 userId
+```
+
+### 3.2 修复验证
+
+修复后，列表接口中 `userId` 的生命周期：
+- 第 94 行声明：`const userId = ctx.state.user?.id;`
+- 第 97 行使用：`if (userId) { ... }` — 草稿可见性过滤
+- 第 133 行使用：`await attachLikeInfo(plainArticles, userId)` — 点赞信息附加
+
+全程复用同一个变量，逻辑正确无遗漏。
+
+---
+
+## 4. 经验教训
+
+### 4.1 代码审查检查点
+
+在已有代码中插入 `const`/`let` 声明时，必须**先搜索同作用域内是否已存在同名变量**，特别是像 `userId` 这样通用的命名。
+
+### 4.2 防范措施
+
+| 措施 | 说明 |
+|------|------|
+| ESLint `no-redeclare` 规则 | 静态分析即可捕获此类错误 |
+| 启动时冒烟测试 | 部署后先 `curl /api/article` 确认服务可用 |
+| CI 集成 | 在 pipeline 中增加 `node -c backend/routes/*.js` 语法检查步骤 |
+
+---
+
+## 5. 修改文件清单
+
+| 文件 | 修改类型 | 说明 |
+|------|----------|------|
+| `backend/routes/article.js` | 🔧 修复 | 列表接口删除第 132 行重复的 `const userId` 声明 |
+| `FIX_GUIDE.md` | 📝 文档 | 追加本次 FIX-005 记录 |
+
+---
+
+**文档版本**：v1.0（userId 重复声明修复）  
+**最后更新**：2026-06-18
