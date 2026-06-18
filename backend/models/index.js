@@ -22,6 +22,11 @@ Comment.belongsTo(User, { foreignKey: 'userId' });
 Article.hasMany(Comment, { foreignKey: 'articleId' });
 Comment.belongsTo(Article, { foreignKey: 'articleId' });
 
+// Comment self-association (reply structure)
+Comment.belongsTo(Comment, { as: 'parent', foreignKey: 'parentId' });
+Comment.hasMany(Comment, { as: 'children', foreignKey: 'parentId' });
+Comment.belongsTo(User, { as: 'replyToUser', foreignKey: 'replyToUserId' });
+
 Article.belongsToMany(Tag, { through: ArticleTag, foreignKey: 'articleId', otherKey: 'tagId' });
 Tag.belongsToMany(Article, { through: ArticleTag, foreignKey: 'tagId', otherKey: 'articleId' });
 

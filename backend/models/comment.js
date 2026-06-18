@@ -13,7 +13,7 @@ const Comment = sequelize.define('comment', {
   },
   userId: {
     type: DataTypes.INTEGER,
-    allowNull: false,
+    allowNull: true,
     references: {
       model: 'user',
       key: 'id',
@@ -26,6 +26,26 @@ const Comment = sequelize.define('comment', {
       model: 'article',
       key: 'id',
     }
+  },
+  parentId: {
+    type: DataTypes.INTEGER,
+    allowNull: true,
+    references: {
+      model: 'comment',
+      key: 'id',
+    }
+  },
+  replyToUserId: {
+    type: DataTypes.INTEGER,
+    allowNull: true,
+    references: {
+      model: 'user',
+      key: 'id',
+    }
+  },
+  isDeleted: {
+    type: DataTypes.BOOLEAN,
+    defaultValue: false,
   }
 }, {
   tableName: 'comment', // Explicit singular table name
