@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { HttpUtil } from '../utils/HttpUtil';
-import { Clock, User as UserIcon, ArrowRight, MessageSquare, Sparkles, TrendingUp, Heart, Tag, X } from 'lucide-react';
+import { Clock, User as UserIcon, ArrowRight, MessageSquare, Sparkles, TrendingUp, Heart, Tag, X, ArrowDown, ArrowUp } from 'lucide-react';
 
 const Dashboard = () => {
     const [articles, setArticles] = useState([]);
@@ -10,6 +10,7 @@ const Dashboard = () => {
     const [tags, setTags] = useState([]);
     const [selectedTagId, setSelectedTagId] = useState(null);
     const [tagsLoading, setTagsLoading] = useState(true);
+    const [sortOrder, setSortOrder] = useState('desc');
 
     useEffect(() => {
         const fetchTags = async () => {
@@ -29,9 +30,10 @@ const Dashboard = () => {
         const fetchArticles = async () => {
             setLoading(true);
             try {
-                const url = selectedTagId
-                    ? `/article?tagId=${selectedTagId}`
-                    : '/article';
+                const params = new URLSearchParams();
+                if (selectedTagId) params.append('tagId', selectedTagId);
+                if (sortOrder) params.append('sort', sortOrder);
+                const url = `/article${params.toString() ? `?${params.toString()}` : ''}`;
                 const data = await HttpUtil.get(url);
                 setArticles(data);
             } catch (error) {
@@ -41,10 +43,21 @@ const Dashboard = () => {
             }
         };
         fetchArticles();
-    }, [selectedTagId]);
+    }, [selectedTagId, sortOrder]);
 
     const handleTagClick = (tagId) => {
         setSelectedTagId(prev => prev === tagId ? null : tagId);
+    };
+
+    const handleSortToggle = () => {
+        setSortOrder(prev => prev === 'desc' ? 'asc' : 'desc');
+    };
+
+    const truncateContent = (content, maxLength = 120) => {
+        if (!content) return '';
+        const plainText = content.replace(/<[^>]*>/g, '').replace(/\s+/g, ' ').trim();
+        if (plainText.length <= maxLength) return plainText;
+        return plainText.slice(0, maxLength) + '...';
     };
 
     const handleLike = async (e, articleId) => {
@@ -157,9 +170,22 @@ const Dashboard = () => {
                         <TrendingUp size={20} className="text-indigo-500" />
                         {selectedTagId ? '筛选结果' : '最新动态'}
                     </h2>
-                    <span className="text-xs font-medium text-gray-500 bg-white/50 px-2.5 py-0.5 rounded-full border border-gray-100">
-                        共 {articles.length} 篇文章
-                    </span>
+                    <div className="flex items-center gap-3">
+                        <button
+                            onClick={handleSortToggle}
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-white/80 border border-gray-200 text-gray-600 hover:bg-gray-50 hover:border-gray-300 transition-all"
+                            title={sortOrder === 'desc' ? '点击切换为升序' : '点击切换为降序'}
+                        >
+                            {sortOrder === 'desc' ? (
+                                <><ArrowDown size={14} /> 最新优先</>
+                            ) : (
+                                <><ArrowUp size={14} /> 最早优先</>
+                            )}
+                        </button>
+                        <span className="text-xs font-medium text-gray-500 bg-white/50 px-2.5 py-0.5 rounded-full border border-gray-100">
+                            共 {articles.length} 篇文章
+                        </span>
+                    </div>
                 </div>
 
                 <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-3">
@@ -208,7 +234,7 @@ const Dashboard = () => {
                             )}
                             
                             <p className="text-gray-500 mb-4 flex-grow line-clamp-3 leading-relaxed text-sm">
-                                {article.content}
+                                {truncateContent(article.content)}
                             </p>
                             
                             <div className="mt-auto pt-4 border-t border-gray-100/50 flex justify-between items-center">

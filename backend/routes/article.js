@@ -90,7 +90,7 @@ const attachTagsToArticles = async (articles) => {
 
 // List all articles
 router.get('/', optionalAuthMiddleware, async (ctx) => {
-    const { tagId, tagName } = ctx.query;
+    const { tagId, tagName, sort } = ctx.query;
     let where = {};
     let include = [{ model: User, attributes: ['username'] }];
 
@@ -106,10 +106,12 @@ router.get('/', optionalAuthMiddleware, async (ctx) => {
         });
     }
 
+    const sortOrder = sort === 'asc' ? 'ASC' : 'DESC';
+
     const articles = await Article.findAll({
         where,
         include,
-        order: [['createdAt', 'DESC']],
+        order: [['createdAt', sortOrder]],
         distinct: true
     });
 
