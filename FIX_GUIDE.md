@@ -648,3 +648,230 @@ CommentSection (主组件)
 
 **文档版本**：v1.0（评论回复模块）  
 **最后更新**：2026-06-18
+
+---
+
+# 文章状态标签与草稿可见性修复指南
+
+## 文档信息
+
+| 项目 | 内容 |
+|------|------|
+| **问题编号** | FIX-003 |
+| **问题类型** | 功能缺失 / 权限漏洞 / UI 不明显 |
+| **涉及模块** | 后端 Route + 前端 Dashboard / ArticleDetail / ArticleCreate / ArticleEdit |
+| **发现日期** | 2026-06-18 |
+| **修复日期** | 2026-06-18 |
+| **修复人员** | AI Assistant |
+
+---
+
+## 1. 问题现象
+
+用户反馈以下 3 个问题：
+
+### 问题 1：没有发现切换状态标签的地方
+- **现象**：进入文章编辑页后，无法直观地找到"切换已发布/草稿"的入口
+- **根因**：此前使用 `<select>` 下拉框且样式朴素，与表单其他控件视觉层次一致，不够突出
+
+### 问题 2：文章没有保存草稿的按钮，只能直接发布
+- **现象**：新建文章页底部只有一个"立即发布"按钮，无法先保存为草稿稍后再编辑发布
+- **根因**：`ArticleCreate.jsx` 未提供状态选择 UI 与分支提交逻辑
+
+### 问题 3：草稿状态的文章别人也能看到（安全漏洞）
+- **现象**：任何用户（包括未登录）都能通过列表或直接输入 URL 访问 `status = 'draft'` 的文章
+- **根因**：后端 `GET /article` 列表与 `GET /article/:id` 详情接口未根据 `status` 做可见性过滤
+
+---
+
+## 2. 修复方案总览
+
+| # | 问题 | 修复方式 | 涉及文件 |
+|---|------|---------|---------|
+| 1 | 状态切换入口不明显 | 用双按钮卡片 + 实时徽章替换 `<select>`，视觉高亮 | `ArticleEdit.jsx`、`ArticleCreate.jsx` |
+| 2 | 无保存草稿按钮 | 新增「保存草稿」「立即发布」双按钮；表单内增加状态切换卡片 | `ArticleCreate.jsx` |
+| 3 | 草稿可见性越权 | 列表接口加 `Op.or` 过滤，详情接口加作者校验，非作者访问草稿返回 404 | `backend/routes/article.js` |
+
+---
+
+## 3. 详细修复说明
+
+### 3.1 后端：草稿可见性过滤（核心安全修复）
+
+#### 3.1.1 列表接口 `GET /article`
+
+**修改位置**：[article.js](file:///d:/Desktop/新建文件夹 (2)/278-20260128-123520/278/backend/routes/article.js#L91-L136)
+
+**逻辑**：
+- 未登录用户：`WHERE status = 'published'`（只能看已发布）
+- 已登录用户：`WHERE (status = 'published') OR (status = 'draft' AND authorId = 当前用户ID)`（能看到自己的草稿）
+
+**关键代码**：
+```javascript
+const userId = ctx.state.user?.id;
+let where = {};
+if (userId) {
+    where = {
+        [Op.or]: [
+            { status: 'published' },
+            { status: 'draft', authorId: userId }
+        ]
+    };
+} else {
+    where = { status: 'published' };
+}
+```
+
+#### 3.1.2 详情接口 `GET /article/:id`
+
+**修改位置**：[article.js](file:///d:/Desktop/新建文件夹 (2)/278-20260128-123520/278/backend/routes/article.js#L139-L157)
+
+**逻辑**：文章查询成功后额外检查一层 —— 若是草稿且访问者不是作者，直接抛 404（伪装成文章不存在，避免泄露"有这篇草稿"的信息）。
+
+**关键代码**：
+```javascript
+const userId = ctx.state.user?.id;
+if (article.status === 'draft' && article.authorId !== userId) {
+    ctx.throw(404, '文章未找到');
+}
+```
+
+#### 3.1.3 安全说明
+- 编辑接口 `PUT /article/:id` 原本已有 `authorId !== userId → 403` 的校验，天然只有作者能改状态，无需额外加固
+- 创建接口 `POST /article` 已接受 `status` 字段（model 有默认值 `'published'`），前端提交时覆盖即可
+
+---
+
+### 3.2 前端：状态选择 UI（从 select → 双按钮卡片）
+
+为解决"看不见切换入口"的问题，将两个页面的状态选择器统一改造为**高亮卡片 + 双按钮**形式：
+
+#### 视觉设计
+
+```
+┌──────────────────────────────────────────────────┐
+│  ┌───────┐                                         │
+│  │ 当前：已发布 │  ← 实时彩色徽章（绿=已发布，黄=草稿）  │
+│  └───────┘                                         │
+│  ┌─────────────┐  ┌─────────────┐                  │
+│  │   已发布    │  │  存为草稿   │  ← 选中项有背景色+阴影   │
+│  └─────────────┘  └─────────────┘                  │
+│  💡 「草稿」仅您可见，「已发布」所有人可见              │
+└──────────────────────────────────────────────────┘
+```
+
+**样式要点**：
+- 卡片容器：`border-2 border-dashed bg-blue-50/40 border-blue-200/60`（虚线蓝边，区别于普通表单）
+- 选中按钮：`bg-emerald-500 / bg-amber-500` + 实心边框 + 阴影（`shadow-md shadow-xxx/30`）
+- 未选中按钮：白底灰边 + hover 时边框变为对应主题色
+
+#### 3.2.1 `ArticleEdit.jsx` 修改
+
+**修改位置**：[ArticleEdit.jsx](file:///d:/Desktop/新建文件夹 (2)/278-20260128-123520/278/frontend/src/pages/ArticleEdit.jsx)
+
+| 改动点 | 说明 |
+|--------|------|
+| `formData` 初始化 | 新增 `status: 'published'` 默认值 |
+| `fetchData` 赋值 | `setFormData({ ..., status: articleData.status \|\| 'published' })` |
+| 状态选择区 | 替换为双按钮卡片（见上方视觉设计） |
+| 提交逻辑 | 保持不变，`{ ...formData }` 展开会自动带上 status |
+
+#### 3.2.2 `ArticleCreate.jsx` 修改
+
+**修改位置**：[ArticleCreate.jsx](file:///d:/Desktop/新建文件夹 (2)/278-20260128-123520/278/frontend/src/pages/ArticleCreate.jsx)
+
+| 改动点 | 说明 |
+|--------|------|
+| `formData` 初始化 | 新增 `status: 'published'` 默认值 |
+| 状态选择区 | 在「标签」与「内容详情」之间插入双按钮卡片 |
+| `handleSubmit` 签名 | 增加 `forceStatus` 参数：`handleSubmit(e, forceStatus = null)` |
+| 提交逻辑 | `const submitStatus = forceStatus \|\| formData.status`，优先级：按钮参数 > 表单选择 |
+| 底部按钮区 | 从单按钮改为**双按钮并排**：<br>• 左侧「保存草稿」（白底琥珀色边框），`onClick={e => handleSubmit(e, 'draft')}`<br>• 右侧「立即发布」（蓝紫渐变主按钮），`onClick={e => handleSubmit(e, 'published')}` |
+
+> 💡 **设计意图**：即使状态选择器被用户忽略，底部两个独立提交按钮也能**强制指定最终状态**，避免"选了草稿却点了发布"之类的困惑。`forceStatus` 覆盖 `formData.status` 的策略是最终一致性保障。
+
+---
+
+### 3.3 前端：状态标签展示（已存在的补充验证）
+
+此前已在两个页面添加展示标签，此次修复中一并确认存在：
+
+| 页面 | 位置 | 样式 |
+|------|------|------|
+| `Dashboard.jsx` | 卡片中作者信息下方、标题上方 | `text-[10px]` 小徽章，琥珀/翡翠色 |
+| `ArticleDetail.jsx` | 文章大标题上方居中 | `text-sm` 较大徽章，视觉突出 |
+
+配色统一：
+- **已发布**：`bg-emerald-50(+100/80) text-emerald-600(+700) border-emerald-200`
+- **草稿**：`bg-amber-50(+100/80) text-amber-600(+700) border-amber-200`
+
+---
+
+## 4. 权限矩阵（修复后）
+
+| 操作 | 未登录 | 其他登录用户 | 文章作者 |
+|------|--------|-------------|---------|
+| 查看已发布文章列表 | ✅ | ✅ | ✅ |
+| 查看自己的草稿文章列表 | ❌（无身份） | ❌ | ✅ |
+| 查看他人的草稿列表 | ❌ | ❌ | — |
+| 访问已发布文章详情 | ✅ | ✅ | ✅ |
+| 访问自己的草稿详情 | ❌（无身份） | ❌ | ✅ |
+| 访问他人的草稿详情 | ❌（404） | ❌（404） | — |
+| 修改文章状态 / 保存草稿 | ❌ | ❌（403） | ✅ |
+
+---
+
+## 5. 验证步骤
+
+### 5.1 代码静态验证
+
+用 IDE 诊断工具检查以下文件是否有语法/导入错误：
+- `backend/routes/article.js` → ✅ 无错误
+- `frontend/src/pages/Dashboard.jsx` → ✅ 无错误
+- `frontend/src/pages/ArticleDetail.jsx` → ✅ 无错误
+- `frontend/src/pages/ArticleCreate.jsx` → ✅ 无错误
+- `frontend/src/pages/ArticleEdit.jsx` → ✅ 无错误
+
+### 5.2 运行时验证（Docker 启动后）
+
+**前置条件**：准备两个测试账号 —— `userA`、`userB`。
+
+| # | 场景 | 操作步骤 | 预期结果 |
+|---|------|---------|---------|
+| 1 | Dashboard 状态标签 | 登录后进入首页 | 每篇文章卡片作者信息下方显示「已发布」或「草稿」徽章 |
+| 2 | ArticleDetail 状态标签 | 打开任意文章 | 大标题上方居中显示对应状态徽章 |
+| 3 | ArticleEdit 切换入口可见 | 打开自己的文章→编辑页 | 「标签」下方可见虚线蓝框的状态选择卡，当前状态有彩色徽章 |
+| 4 | ArticleEdit 切换状态 | 编辑页点「存为草稿」→保存→返回 | 列表/详情显示「草稿」徽章 |
+| 5 | ArticleCreate 双按钮 | 进入发布新文章页 | 底部有「保存草稿」（左，琥珀边）+「立即发布」（右，蓝紫渐变）两个按钮 |
+| 6 | ArticleCreate 保存草稿 | 填标题内容→点「保存草稿」 | 列表显示为「草稿」，仅本人可见 |
+| 7 | ArticleCreate 立即发布 | 填标题内容→点「立即发布」 | 列表显示为「已发布」，所有用户可见 |
+| 8 | **安全测试** - 草稿列表隔离 | userA 发布一篇草稿 → 退出/换 userB 登录 → 访问首页 | userB 的列表中**看不到** userA 这篇草稿 |
+| 9 | **安全测试** - 草稿直接访问 | userA 发布一篇草稿，记下 ID → 退出登录 → 浏览器直接访问 `/article/{id}` | 返回「文章不存在」（404，伪装成不存在） |
+| 10 | **安全测试** - 跨用户改状态 | 用 HTTP 客户端以 userB 身份调用 `PUT /article/{userA文章ID}` 传 `status: 'draft'` | 返回 403 权限不足，文章状态保持不变 |
+
+---
+
+## 6. 修改文件清单
+
+| 文件 | 修改类型 | 说明 |
+|------|----------|------|
+| `backend/routes/article.js` | 🔧 修复 | 列表接口加 status 过滤；详情接口加草稿作者校验 |
+| `frontend/src/pages/Dashboard.jsx` | 🔧 保留 | 确认状态标签展示存在（此前已加） |
+| `frontend/src/pages/ArticleDetail.jsx` | 🔧 保留 | 确认状态标签展示存在（此前已加） |
+| `frontend/src/pages/ArticleEdit.jsx` | 🔧 优化 | formData 加 status；select → 双按钮卡片；fetchData 回填 status |
+| `frontend/src/pages/ArticleCreate.jsx` | ➕ 改造 | formData 加 status；新增状态选择卡；handleSubmit 支持 forceStatus；底部改为"保存草稿 + 立即发布"双按钮 |
+| `FIX_GUIDE.md` | 📝 文档 | 追加本次 FIX-003 记录 |
+
+---
+
+## 7. 后续可扩展方向
+
+1. **个人中心「我的草稿」tab**：在 Dashboard 上方加筛选器，可只看自己的草稿
+2. **自动草稿保存**：`ArticleCreate` / `ArticleEdit` 增加 `useEffect` 定时器，每 30 秒静默保存一次到 localStorage 或后端临时草稿接口
+3. **定时发布**：新增 `status = 'scheduled'` + `publishAt` 字段，用 Cron job 到时自动改为 published
+4. **审核流**：新增 `status = 'pending_review'`，仅 admin 可见并审核通过后变为 published
+
+---
+
+**文档版本**：v1.0（文章状态与草稿修复）  
+**最后更新**：2026-06-18

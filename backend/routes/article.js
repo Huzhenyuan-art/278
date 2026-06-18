@@ -91,7 +91,20 @@ const attachTagsToArticles = async (articles) => {
 // List all articles
 router.get('/', optionalAuthMiddleware, async (ctx) => {
     const { tagId, tagName, sort } = ctx.query;
+    const userId = ctx.state.user?.id;
+    
     let where = {};
+    if (userId) {
+        where = {
+            [Op.or]: [
+                { status: 'published' },
+                { status: 'draft', authorId: userId }
+            ]
+        };
+    } else {
+        where = { status: 'published' };
+    }
+    
     let include = [{ model: User, attributes: ['username'] }];
 
     if (tagId || tagName) {
@@ -135,6 +148,9 @@ router.get('/:id', optionalAuthMiddleware, async (ctx) => {
         ctx.throw(404, '文章未找到');
     }
     const userId = ctx.state.user?.id;
+    if (article.status === 'draft' && article.authorId !== userId) {
+        ctx.throw(404, '文章未找到');
+    }
     const [result] = await attachLikeInfo([article], userId);
     result.tags = article.tags ? article.tags.map(t => t.toJSON()) : [];
     ctx.body = result;

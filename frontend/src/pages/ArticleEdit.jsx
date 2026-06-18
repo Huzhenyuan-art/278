@@ -187,18 +187,42 @@ const ArticleEdit = () => {
                         </p>
                     </div>
 
-                    <div className="space-y-3">
-                        <label className="block text-sm font-bold text-gray-700 ml-1">文章状态</label>
-                        <select
-                            value={formData.status}
-                            onChange={e => setFormData({...formData, status: e.target.value})}
-                            className="w-full px-6 py-4 rounded-2xl border border-gray-200 bg-white/50 focus:bg-white focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 outline-none transition-all duration-300 text-gray-700 font-medium cursor-pointer"
-                        >
-                            <option value="published">已发布</option>
-                            <option value="draft">草稿</option>
-                        </select>
-                        <p className="text-xs text-gray-400 ml-1">
-                            「草稿」状态的文章仅您自己可见
+                    <div className="space-y-3 p-4 rounded-2xl border-2 border-dashed bg-blue-50/40 border-blue-200/60">
+                        <label className="block text-sm font-bold text-gray-800 ml-1 flex items-center gap-2">
+                            <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-bold ${
+                                formData.status === 'draft'
+                                    ? 'bg-amber-100 text-amber-700 border border-amber-300'
+                                    : 'bg-emerald-100 text-emerald-700 border border-emerald-300'
+                            }`}>
+                                当前：{formData.status === 'draft' ? '草稿' : '已发布'}
+                            </span>
+                        </label>
+                        <div className="grid grid-cols-2 gap-3">
+                            <button
+                                type="button"
+                                onClick={() => setFormData({...formData, status: 'published'})}
+                                className={`px-4 py-3 rounded-xl font-bold transition-all duration-200 border-2 ${
+                                    formData.status === 'published'
+                                        ? 'bg-emerald-500 text-white border-emerald-500 shadow-md shadow-emerald-500/30'
+                                        : 'bg-white text-gray-600 border-gray-200 hover:border-emerald-300 hover:text-emerald-600'
+                                }`}
+                            >
+                                已发布
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => setFormData({...formData, status: 'draft'})}
+                                className={`px-4 py-3 rounded-xl font-bold transition-all duration-200 border-2 ${
+                                    formData.status === 'draft'
+                                        ? 'bg-amber-500 text-white border-amber-500 shadow-md shadow-amber-500/30'
+                                        : 'bg-white text-gray-600 border-gray-200 hover:border-amber-300 hover:text-amber-600'
+                                }`}
+                            >
+                                存为草稿
+                            </button>
+                        </div>
+                        <p className="text-xs text-gray-500 ml-1 mt-1">
+                            💡 「草稿」状态的文章仅您自己可见，「已发布」则所有人可见
                         </p>
                     </div>
 

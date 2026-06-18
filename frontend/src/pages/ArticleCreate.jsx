@@ -5,7 +5,7 @@ import { PenTool, Save, ArrowLeft, Sparkles, Tag, Plus, X } from 'lucide-react';
 
 const ArticleCreate = () => {
     const navigate = useNavigate();
-    const [formData, setFormData] = useState({ title: '', content: '' });
+    const [formData, setFormData] = useState({ title: '', content: '', status: 'published' });
     const [loading, setLoading] = useState(false);
     const [tags, setTags] = useState([]);
     const [selectedTagIds, setSelectedTagIds] = useState([]);
@@ -50,17 +50,19 @@ const ArticleCreate = () => {
         }
     };
 
-    const handleSubmit = async (e) => {
+    const handleSubmit = async (e, forceStatus = null) => {
         e.preventDefault();
         setLoading(true);
         try {
+            const submitStatus = forceStatus || formData.status;
             await HttpUtil.post('/article', {
                 ...formData,
+                status: submitStatus,
                 tagIds: selectedTagIds
             });
             navigate('/');
         } catch (error) {
-            alert('发布失败: ' + error.message);
+            alert('保存失败: ' + error.message);
         } finally {
             setLoading(false);
         }
@@ -164,6 +166,45 @@ const ArticleCreate = () => {
                         </p>
                     </div>
 
+                    <div className="space-y-3 p-4 rounded-2xl border-2 border-dashed bg-blue-50/40 border-blue-200/60">
+                        <label className="block text-sm font-bold text-gray-800 ml-1 flex items-center gap-2">
+                            <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-bold ${
+                                formData.status === 'draft'
+                                    ? 'bg-amber-100 text-amber-700 border border-amber-300'
+                                    : 'bg-emerald-100 text-emerald-700 border border-emerald-300'
+                            }`}>
+                                当前：{formData.status === 'draft' ? '草稿' : '已发布'}
+                            </span>
+                        </label>
+                        <div className="grid grid-cols-2 gap-3">
+                            <button
+                                type="button"
+                                onClick={() => setFormData({...formData, status: 'published'})}
+                                className={`px-4 py-3 rounded-xl font-bold transition-all duration-200 border-2 ${
+                                    formData.status === 'published'
+                                        ? 'bg-emerald-500 text-white border-emerald-500 shadow-md shadow-emerald-500/30'
+                                        : 'bg-white text-gray-600 border-gray-200 hover:border-emerald-300 hover:text-emerald-600'
+                                }`}
+                            >
+                                已发布
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => setFormData({...formData, status: 'draft'})}
+                                className={`px-4 py-3 rounded-xl font-bold transition-all duration-200 border-2 ${
+                                    formData.status === 'draft'
+                                        ? 'bg-amber-500 text-white border-amber-500 shadow-md shadow-amber-500/30'
+                                        : 'bg-white text-gray-600 border-gray-200 hover:border-amber-300 hover:text-amber-600'
+                                }`}
+                            >
+                                存为草稿
+                            </button>
+                        </div>
+                        <p className="text-xs text-gray-500 ml-1 mt-1">
+                            💡 「草稿」状态的文章仅您自己可见，「已发布」则所有人可见
+                        </p>
+                    </div>
+
                     <div className="space-y-3">
                         <label className="block text-sm font-bold text-gray-700 ml-1">内容详情</label>
                         <textarea
@@ -176,9 +217,31 @@ const ArticleCreate = () => {
                         ></textarea>
                     </div>
 
-                    <div className="flex justify-end pt-4 border-t border-gray-100/50">
+                    <div className="flex justify-end gap-3 pt-4 border-t border-gray-100/50">
                         <button
-                            type="submit"
+                            type="button"
+                            onClick={(e) => handleSubmit(e, 'draft')}
+                            disabled={loading}
+                            className="flex items-center gap-2 px-6 py-3.5 bg-white text-amber-600 font-bold rounded-2xl border-2 border-amber-200 hover:bg-amber-50 hover:border-amber-300 shadow-sm hover:shadow-md transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                            {loading ? (
+                                <>
+                                    <svg className="animate-spin h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                    </svg>
+                                    保存中...
+                                </>
+                            ) : (
+                                <>
+                                    <Save size={18} />
+                                    保存草稿
+                                </>
+                            )}
+                        </button>
+                        <button
+                            type="button"
+                            onClick={(e) => handleSubmit(e, 'published')}
                             disabled={loading}
                             className="flex items-center gap-2 px-8 py-3.5 bg-gradient-to-r from-blue-600 to-indigo-600 text-white font-bold rounded-2xl shadow-lg shadow-blue-500/30 hover:shadow-blue-500/50 hover:-translate-y-1 transform transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed text-lg"
                         >
