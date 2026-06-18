@@ -4,6 +4,7 @@ import { HttpUtil } from '../utils/HttpUtil';
 import { User, Calendar, ArrowLeft, Trash2, Edit, Heart, Tag } from 'lucide-react';
 import Modal from '../components/Modal';
 import CommentSection from '../components/CommentSection';
+import MarkdownPreview from '../components/MarkdownPreview';
 
 const ArticleDetail = () => {
     const { id } = useParams();
@@ -13,7 +14,6 @@ const ArticleDetail = () => {
     const [isLiking, setIsLiking] = useState(false);
     const user = JSON.parse(localStorage.getItem('user') || '{}');
 
-    // Modal State
     const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
 
     useEffect(() => {
@@ -144,11 +144,7 @@ const ArticleDetail = () => {
                 </div>
 
                 <div className="p-8 md:p-12 bg-white/50">
-                    <div className="prose prose-lg prose-blue prose-a:no-underline max-w-none text-gray-700 leading-relaxed">
-                        {article.content.split('\n').map((paragraph, idx) => (
-                             <p key={idx} className="mb-4">{paragraph}</p>
-                        ))}
-                    </div>
+                    <MarkdownPreview content={article.content} />
                 </div>
 
                 {isAuthor && (

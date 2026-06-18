@@ -1,6 +1,7 @@
 const Router = require('koa-router');
 const { Article, User, Like, Tag, ArticleTag } = require('../models');
 const { verifyToken } = require('../utils/jwt');
+const { sanitizeMarkdown } = require('../utils/sanitize');
 const { Op } = require('sequelize');
 
 const router = new Router({
@@ -180,9 +181,11 @@ router.post('/', authMiddleware, async (ctx) => {
     if (!title || !content) {
         ctx.throw(400, '标题和内容为必填项');
     }
+    const sanitizedTitle = String(title).trim().slice(0, 100);
+    const sanitizedContent = sanitizeMarkdown(content);
     const article = await Article.create({
-        title,
-        content,
+        title: sanitizedTitle,
+        content: sanitizedContent,
         status: status || 'published',
         authorId: ctx.state.user.id
     });
@@ -212,7 +215,17 @@ router.put('/:id', authMiddleware, async (ctx) => {
         ctx.throw(403, '权限不足');
     }
     const { title, content, status, tagIds } = ctx.request.body;
-    await article.update({ title, content, status });
+    const updateData = {};
+    if (title !== undefined) {
+        updateData.title = String(title).trim().slice(0, 100);
+    }
+    if (content !== undefined) {
+        updateData.content = sanitizeMarkdown(content);
+    }
+    if (status !== undefined) {
+        updateData.status = status;
+    }
+    await article.update(updateData);
 
     if (tagIds !== undefined) {
         if (Array.isArray(tagIds) && tagIds.length > 0) {

@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { HttpUtil } from '../utils/HttpUtil';
 import { PenTool, Save, ArrowLeft, Sparkles, Tag, Plus, X } from 'lucide-react';
+import MarkdownEditor from '../components/MarkdownEditor';
 
 const ArticleCreate = () => {
     const navigate = useNavigate();
@@ -69,7 +70,7 @@ const ArticleCreate = () => {
     };
 
     return (
-        <div className="max-w-4xl mx-auto space-y-6">
+        <div className="max-w-6xl mx-auto space-y-6">
              <button 
                 onClick={() => navigate(-1)} 
                 className="flex items-center text-gray-500 hover:text-gray-800 transition-colors bg-white/50 px-3 py-1.5 rounded-lg border border-transparent hover:border-gray-200"
@@ -86,7 +87,7 @@ const ArticleCreate = () => {
                         </div>
                         <div>
                             <h1 className="text-3xl font-extrabold tracking-tight text-gray-900">发布新文章</h1>
-                            <p className="text-gray-500 font-medium mt-1">分享你的技术见解与实战经验</p>
+                            <p className="text-gray-500 font-medium mt-1">分享你的技术见解与实战经验（支持 Markdown）</p>
                         </div>
                     </div>
                 </div>
@@ -100,7 +101,7 @@ const ArticleCreate = () => {
                             className="w-full px-6 py-4 rounded-2xl border border-gray-200 bg-white/50 focus:bg-white focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 outline-none transition-all duration-300 placeholder-gray-400 text-lg font-bold text-gray-800"
                             placeholder="给你的文章起个响亮的标题..."
                             value={formData.title}
-                            maxLength={20}
+                            maxLength={50}
                             onChange={e => setFormData({...formData, title: e.target.value})}
                         />
                     </div>
@@ -207,14 +208,11 @@ const ArticleCreate = () => {
 
                     <div className="space-y-3">
                         <label className="block text-sm font-bold text-gray-700 ml-1">内容详情</label>
-                        <textarea
-                            required
-                            rows="15"
-                            className="w-full px-6 py-4 rounded-2xl border border-gray-200 bg-white/50 focus:bg-white focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 outline-none transition-all duration-300 placeholder-gray-400 resize-none font-sans text-gray-700 leading-relaxed"
-                            placeholder="在此处分享你的真知灼见 (支持 Markdown 格式)..."
+                        <MarkdownEditor
                             value={formData.content}
-                            onChange={e => setFormData({...formData, content: e.target.value})}
-                        ></textarea>
+                            onChange={val => setFormData({...formData, content: val})}
+                            placeholder="# 开始写作吧！&#10;&#10;支持 **Markdown** 语法，例如：&#10;- 列表项&#10;- `行内代码`&#10;```js&#10;// 代码块&#10;console.log('Hello');&#10;```"
+                        />
                     </div>
 
                     <div className="flex justify-end gap-3 pt-4 border-t border-gray-100/50">

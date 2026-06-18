@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { HttpUtil } from '../utils/HttpUtil';
 import { MessageSquare, Send, Trash2, Loader2, User as UserIcon, ChevronDown, Edit2, Reply, X, Check } from 'lucide-react';
 import Modal from './Modal';
+import DOMPurify from 'dompurify';
 
 const PAGE_SIZE = 5;
 
@@ -194,7 +195,7 @@ const CommentItem = ({ comment, depth, articleId, onReplySubmit, onEditSubmit, o
                         </form>
                     ) : (
                         <p className={`text-sm leading-relaxed whitespace-pre-wrap break-words ${isSoftDeleted ? 'text-gray-400 italic' : 'text-gray-600'}`}>
-                            {comment.content}
+                            {DOMPurify.sanitize(comment.content || '')}
                         </p>
                     )}
 

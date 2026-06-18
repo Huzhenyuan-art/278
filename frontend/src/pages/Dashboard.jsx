@@ -55,7 +55,21 @@ const Dashboard = () => {
 
     const truncateContent = (content, maxLength = 120) => {
         if (!content) return '';
-        const plainText = content.replace(/<[^>]*>/g, '').replace(/\s+/g, ' ').trim();
+        let plainText = content
+            .replace(/```[\s\S]*?```/g, ' ')
+            .replace(/`[^`]*`/g, ' ')
+            .replace(/!\[[^\]]*\]\([^)]*\)/g, ' ')
+            .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
+            .replace(/^#{1,6}\s+/gm, '')
+            .replace(/^\s*[-*+]\s+/gm, '')
+            .replace(/^\s*\d+\.\s+/gm, '')
+            .replace(/^>\s?/gm, '')
+            .replace(/[*_~]{1,3}([^*_~]+)[*_~]{1,3}/g, '$1')
+            .replace(/\|.+\|/g, ' ')
+            .replace(/^---+$/gm, ' ')
+            .replace(/<[^>]*>/g, ' ')
+            .replace(/\s+/g, ' ')
+            .trim();
         if (plainText.length <= maxLength) return plainText;
         return plainText.slice(0, maxLength) + '...';
     };

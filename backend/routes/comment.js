@@ -1,6 +1,7 @@
 const Router = require('koa-router');
 const { Comment, User, Article } = require('../models');
 const { verifyToken } = require('../utils/jwt');
+const { sanitizeHtml } = require('../utils/sanitize');
 const { Op } = require('sequelize');
 
 const router = new Router({
@@ -222,6 +223,7 @@ router.post('/article/:articleId', authMiddleware, async (ctx) => {
     if (!content || !content.trim()) {
         ctx.throw(400, '评论内容不能为空');
     }
+    const sanitizedContent = sanitizeHtml(String(content).trim()).slice(0, 1000);
 
     let validatedParentId = null;
     let validatedReplyToUserId = null;
@@ -258,7 +260,7 @@ router.post('/article/:articleId', authMiddleware, async (ctx) => {
     }
 
     const comment = await Comment.create({
-        content: content.trim(),
+        content: sanitizedContent,
         userId: ctx.state.user.id,
         articleId,
         parentId: validatedParentId,
@@ -303,8 +305,9 @@ router.put('/:id', authMiddleware, async (ctx) => {
     if (!content || !content.trim()) {
         ctx.throw(400, '评论内容不能为空');
     }
+    const sanitizedContent = sanitizeHtml(String(content).trim()).slice(0, 1000);
 
-    comment.content = content.trim();
+    comment.content = sanitizedContent;
     await comment.save();
 
     const fullComment = await Comment.findByPk(comment.id, {
