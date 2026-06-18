@@ -176,13 +176,14 @@ router.post('/:id/like', authMiddleware, async (ctx) => {
 
 // Create article
 router.post('/', authMiddleware, async (ctx) => {
-    const { title, content, tagIds } = ctx.request.body;
+    const { title, content, status, tagIds } = ctx.request.body;
     if (!title || !content) {
         ctx.throw(400, '标题和内容为必填项');
     }
     const article = await Article.create({
         title,
         content,
+        status: status || 'published',
         authorId: ctx.state.user.id
     });
 
