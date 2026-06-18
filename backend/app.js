@@ -29,6 +29,7 @@ const { initDb } = require('./models');
 const authRoutes = require('./routes/user');
 const articleRoutes = require('./routes/article');
 const tagRoutes = require('./routes/tag');
+const commentRoutes = require('./routes/comment');
 
 // Initialize DB
 initDb();
@@ -37,6 +38,7 @@ initDb();
 app.use(authRoutes.routes()).use(authRoutes.allowedMethods());
 app.use(articleRoutes.routes()).use(articleRoutes.allowedMethods());
 app.use(tagRoutes.routes()).use(tagRoutes.allowedMethods());
+app.use(commentRoutes.routes()).use(commentRoutes.allowedMethods());
 
 app.use(async ctx => {
     if (ctx.path === '/') {

@@ -3,6 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { HttpUtil } from '../utils/HttpUtil';
 import { User, Calendar, ArrowLeft, Trash2, Edit, Heart, Tag } from 'lucide-react';
 import Modal from '../components/Modal';
+import CommentSection from '../components/CommentSection';
 
 const ArticleDetail = () => {
     const { id } = useParams();
@@ -158,6 +159,8 @@ const ArticleDetail = () => {
                     </div>
                 )}
             </article>
+
+            <CommentSection articleId={article.id} />
         </div>
     );
 };

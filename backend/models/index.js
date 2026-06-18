@@ -2,6 +2,7 @@ const sequelize = require('../utils/db');
 const User = require('./user');
 const Article = require('./article');
 const Like = require('./like');
+const Comment = require('./comment');
 const Tag = require('./tag');
 const ArticleTag = require('./articleTag');
 
@@ -14,6 +15,12 @@ Like.belongsTo(User, { foreignKey: 'userId' });
 
 Article.hasMany(Like, { foreignKey: 'articleId' });
 Like.belongsTo(Article, { foreignKey: 'articleId' });
+
+User.hasMany(Comment, { foreignKey: 'userId' });
+Comment.belongsTo(User, { foreignKey: 'userId' });
+
+Article.hasMany(Comment, { foreignKey: 'articleId' });
+Comment.belongsTo(Article, { foreignKey: 'articleId' });
 
 Article.belongsToMany(Tag, { through: ArticleTag, foreignKey: 'articleId', otherKey: 'tagId' });
 Tag.belongsToMany(Article, { through: ArticleTag, foreignKey: 'tagId', otherKey: 'articleId' });
@@ -55,6 +62,7 @@ module.exports = {
     User,
     Article,
     Like,
+    Comment,
     Tag,
     ArticleTag,
     initDb
