@@ -6,6 +6,7 @@ import Dashboard from './pages/Dashboard';
 import ArticleCreate from './pages/ArticleCreate';
 import ArticleEdit from './pages/ArticleEdit';
 import ArticleDetail from './pages/ArticleDetail';
+import AdminDashboard from './pages/AdminDashboard';
 
 import Layout from './components/Layout';
 
@@ -13,6 +14,19 @@ const ProtectedRoute = ({ children }) => {
     const token = localStorage.getItem('token');
     if (!token) {
         return <Navigate to="/login" replace />;
+    }
+    return children;
+};
+
+const AdminRoute = ({ children }) => {
+    const token = localStorage.getItem('token');
+    const userJson = localStorage.getItem('user');
+    const user = userJson ? JSON.parse(userJson) : null;
+    if (!token) {
+        return <Navigate to="/login" replace />;
+    }
+    if (user?.role !== 'admin') {
+        return <Navigate to="/" replace />;
     }
     return children;
 };
@@ -33,6 +47,11 @@ function App() {
             <Route path="article/create" element={<ArticleCreate />} /> 
             <Route path="article/edit/:id" element={<ArticleEdit />} />
             <Route path="article/:id" element={<ArticleDetail />} />
+            <Route path="admin" element={
+              <AdminRoute>
+                <AdminDashboard />
+              </AdminRoute>
+            } />
         </Route>
 
         <Route path="*" element={<Navigate to="/" replace />} />

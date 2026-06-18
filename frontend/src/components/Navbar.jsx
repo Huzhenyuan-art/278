@@ -1,6 +1,6 @@
 import React from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
-import { LogOut, PlusSquare, Code2, Home } from 'lucide-react';
+import { LogOut, PlusSquare, Code2, Home, Settings } from 'lucide-react';
 
 const Navbar = () => {
     const navigate = useNavigate();
@@ -53,6 +53,16 @@ const Navbar = () => {
                                 <span className="text-sm font-bold text-gray-800">{user?.username || 'Guest'}</span>
                                 <span className="text-[10px] uppercase font-bold tracking-wider text-blue-500 bg-blue-50 px-1.5 py-0.5 rounded-md">{user?.role === 'admin' ? '管理员' : '用户'}</span>
                             </div>
+                            {user?.role === 'admin' && (
+                                <Link 
+                                    to="/admin" 
+                                    className={`flex items-center gap-2 px-3 py-2 rounded-xl transition-all duration-200 font-medium no-underline ${isActive('/admin') ? 'bg-purple-50 text-purple-600 shadow-sm' : 'text-gray-500 hover:bg-purple-50/80 hover:text-purple-600'}`}
+                                    title="管理入口"
+                                >
+                                    <Settings size={18} />
+                                    <span className="hidden md:inline">管理</span>
+                                </Link>
+                            )}
                             <button 
                                 onClick={handleLogout}
                                 className="p-2.5 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-xl transition-all duration-200"
