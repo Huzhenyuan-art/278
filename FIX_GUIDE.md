@@ -3451,3 +3451,372 @@ if (response.status === 413) {
 
 **文档版本**：v1.0（图片上传功能"服务器连接异常"修复）  
 **最后更新**：2026-06-19
+
+---
+
+# 文章创建/编辑页面"页面加载出错"修复指南
+
+## 文档信息
+
+| 项目 | 内容 |
+|------|------|
+| **问题编号** | FIX-014 |
+| **问题类型** | React Router API 不兼容 / useBlocker 需要 Data Router |
+| **影响范围** | ArticleCreate（发布文章）、ArticleEdit（编辑文章）两页面完全不可用 |
+| **错误信息** | `页面加载出错 抱歉，页面遇到了意外错误。请尝试刷新页面。` |
+| **发现日期** | 2026-06-19 |
+| **修复日期** | 2026-06-19 |
+| **严重程度** | 🔴 P0 — 核心功能页面完全不可用 |
+
+---
+
+## 1. 问题现象
+
+### 1.1 用户反馈
+
+用户在登录后尝试以下操作时均触发全局 Error Boundary，显示"页面加载出错"的错误兜底页面：
+
+| 场景 | 触发路径 | 结果 |
+|------|---------|------|
+| 发布新文章 | 顶部导航 → "发布文章" 按钮 → `/article/create` | ❌ Error Boundary 兜底，白屏+错误卡片 |
+| 编辑已有文章 | 文章详情 → "编辑" 按钮 → `/article/edit/{id}` | ❌ Error Boundary 兜底，白屏+错误卡片 |
+
+### 1.2 浏览器控制台错误
+
+```
+TypeError: Cannot read properties of undefined (reading 'state')
+    at useBlocker (hooks.js:xxx)
+    at useUnsavedChanges (useUnsavedChanges.js:9)
+    at ArticleCreate (ArticleCreate.jsx:23)
+    ...
+```
+
+或：
+
+```
+Error: Invariant failed: You cannot use the useBlocker hook outside a Data Router
+    at invariant (router.ts:xxx)
+    at useBlocker (hooks.ts:xxx)
+```
+
+错误的精确措辞随 React Router v6.x 的具体小版本略有差异，但核心信息一致：**`useBlocker` 在当前路由架构下不可用**。
+
+### 1.3 影响范围
+
+| 页面 | 受影响程度 | 说明 |
+|------|-----------|------|
+| ArticleCreate（发布文章） | ❌ 完全不可用 | 组件渲染阶段就崩溃，无法进入页面 |
+| ArticleEdit（编辑文章） | ❌ 完全不可用 | 同上 |
+| 其他页面 | ✅ 正常 | 不受影响，因为它们不调用 `useUnsavedChanges` hook |
+
+---
+
+## 2. 根本原因分析
+
+### 2.1 问题溯源：useBlocker 的使用前提
+
+`useBlocker` 是 React Router v6.4+ 引入的"Data Router"（数据路由）体系专属 API，**不能**在传统的 `<BrowserRouter>` + `<Routes>` + `<Route>` 声明式路由中使用。
+
+#### 两种路由架构对比
+
+| 维度 | Data Router（数据路由） | BrowserRouter（声明式路由，当前项目使用） |
+|------|------------------------|------------------------------------------|
+| 入口 API | `createBrowserRouter([...])` + `<RouterProvider router={router}>` | `<BrowserRouter>` + `<Routes>` + `<Route>` |
+| `useBlocker` 可用 | ✅ 原生支持，在任何组件内均可调用 | ❌ 不可用，会抛 invariant 错误或 undefined 访问错误 |
+| `usePrompt` 可用 | ✅ 原生支持（v6.4+） | ❌ 同上 |
+| Loader / Action | ✅ 内置 | ❌ 不支持，需要自己封装 |
+| 配置方式 | JS 对象描述路由树 | JSX 声明式写 `<Route>` |
+| 代码风格 | 偏配置式 | 偏组件式 |
+
+### 2.2 当前项目的路由架构
+
+**文件**：[App.jsx](file:///d:/Desktop/新建文件夹%20(2)/278-20260128-123520/278/frontend/src/App.jsx#L147-L155)
+
+```jsx
+function App() {
+    return (
+        <ErrorBoundary>
+            <Router>
+                <AppContent />
+            </Router>
+        </ErrorBoundary>
+    );
+}
+```
+
+其中 `Router` 是从 `react-router-dom` 导入的 `BrowserRouter` 别名。路由在嵌套的 `AppContent` 中通过 `<Routes>` + `<Route>` 声明。
+
+> **关键**：`<BrowserRouter>` ≠ Data Router。即便是 v6.20（本项目的 `react-router-dom` 版本为 `^6.20.1`），`<BrowserRouter>` 也不支持 Data Router 专属的 `useBlocker`、`usePrompt` 等 hooks。
+
+### 2.3 崩溃发生机理
+
+```
+用户访问 /article/create
+    ↓
+React Router 匹配 Route → 挂载 ArticleCreate 组件
+    ↓
+ArticleCreate 组件函数执行 → 调用 useUnsavedChanges(isDirty)
+    ↓
+useUnsavedChanges 内部第一行：const blocker = useBlocker(...)
+    ↓
+React Router 在 useBlocker 内部检查当前路由上下文 → 非 Data Router
+    ↓
+throw new InvariantError("You cannot use useBlocker outside a Data Router")
+    ↓
+异常向上冒泡 → 被 App.jsx 的 <ErrorBoundary> 捕获
+    ↓
+渲染"页面加载出错"的兜底 UI（用户看到的就是这个）
+```
+
+### 2.4 为什么没有在开发阶段发现？
+
+1. **新增功能独立开发**：未保存提示是新加的功能，写完后没有实际启动前端验证，直接提交
+2. **React Router API 文档未细读**：仅看到 `useBlocker` 的签名和用法示例，未注意到它归属 Data Router 体系
+3. **IDE 静态诊断无告警**：`useBlocker` 是合法导出的函数，TypeScript/ESLint 均不会报错，错误只有在运行时才暴露
+
+---
+
+## 3. 修复方案
+
+### 3.1 方案评估与取舍
+
+| 方案 | 描述 | 优点 | 缺点 | 采用 |
+|------|------|------|------|------|
+| **方案 A：迁移到 Data Router** | 把 `BrowserRouter` 全部重写为 `createBrowserRouter` + `RouterProvider` | 一劳永逸，可原生使用所有 v6.4+ 新 API | 改动面极大，所有路由、嵌套 Layout、ProtectedRoute、AdminRoute 都要重写；测试成本高；引入未知回归风险 | ❌ 不采用 |
+| **方案 B：移除 useBlocker，改用 Browser History 原生 API 实现拦截** | 通过 `window.history.pushState` 代理 + `popstate` 事件监听 + `beforeunload` 事件，自行实现跨路由跳转拦截 | **零额外依赖**；100% 兼容 BrowserRouter；功能与 useBlocker 等效（含 push / pop / replace 全覆盖） | 代码稍复杂，需处理各种边界情况（skipNextRef 等标志位） | ✅ **采用** |
+| **方案 C：仅用 beforeunload + 自定义 window.confirm，不拦截 Link 跳转** | 极简，只防浏览器刷新/关闭和返回按钮 | 改动量最小 | **Link 点击跳转不拦截**，用户从导航栏点"首页"会直接离开而不弹提示，功能与需求不符 | ❌ 不采用 |
+
+### 3.2 最终方案详解：Browser History 原生拦截架构
+
+```
+┌───────────────────────────────────────────────────────────────┐
+│                    useUnsavedChanges Hook                      │
+│                                                               │
+│  三个拦截层，覆盖所有离开场景：                                  │
+│  ┌─────────────────────────────────────────────────────────┐  │
+│  │ Layer 1: beforeunload 事件                               │  │
+│  │   → 监听 window 'beforeunload'                           │  │
+│  │   → 处理：浏览器刷新 (F5 / Ctrl+R)、关闭标签、关闭浏览器   │  │
+│  │   → 表现：浏览器原生的"离开此网站？"对话框                │  │
+│  └─────────────────────────────────────────────────────────┘  │
+│                                                               │
+│  ┌─────────────────────────────────────────────────────────┐  │
+│  │ Layer 2: history.pushState 代理                          │  │
+│  │   → monkey-patch window.history.pushState / replaceState │  │
+│  │   → 处理：<Link to>、navigate('/path') 等所有 push 跳转   │  │
+│  │   → 表现：被 capture，弹出自定义的 React Dialog          │  │
+│  └─────────────────────────────────────────────────────────┘  │
+│                                                               │
+│  ┌─────────────────────────────────────────────────────────┐  │
+│  │ Layer 3: popstate 事件监听                               │  │
+│  │   → 监听 window 'popstate'                               │  │
+│  │   → 处理：浏览器前进/后退按钮、history.back()/forward()   │  │
+│  │   → 表现：立即 push 回当前 URL，弹自定义 Dialog           │  │
+│  └─────────────────────────────────────────────────────────┘  │
+│                                                               │
+│  skipNextRef：标记下一次导航"被授权"，不拦截（保存成功后调用）  │
+│  unmountedRef：组件卸载后不响应 popstate，防内存泄漏与误判     │
+└───────────────────────────────────────────────────────────────┘
+```
+
+### 3.3 Hook 返回接口保持不变
+
+为了不改动 `ArticleCreate` 和 `ArticleEdit` 的代码，hook 的对外返回值与使用 `useBlocker` 时完全一致：
+
+```javascript
+return {
+    isDirty,            // 外部传入的脏标记，原样返回便于 UI 直接解构
+    showLeaveDialog,    // 是否显示自定义离开确认 Dialog
+    confirmLeave,       // 用户点"确认离开"的回调
+    cancelLeave,        // 用户点"继续编辑"的回调
+    handleBackClick,    // 页面返回按钮的点击 handler（包装 window.confirm）
+    allowNavigation     // 保存成功后调用，标记下一次导航放行
+};
+```
+
+### 3.4 关键技术细节
+
+#### 3.4.1 `pushState` 的 monkey-patch 与撤销
+
+```javascript
+// 组件挂载且 isDirty=true 时，代理 pushState
+const originalPush = window.history.pushState;
+window.history.pushState = function (state, title, url) {
+    if (skipNextRef.current) { skipNextRef.current = false; return originalPush.apply(this, arguments); }
+    // 否则：捕获目标 URL，弹 Dialog，不真正跳转
+    pendingTargetRef.current = { type: 'push', url };
+    setShowLeaveDialog(true);
+    // 返回值：用当前 URL 构造一个空 push，保持 URL 不变
+    return originalPush.call(this, window.history.state, title, window.location.href);
+};
+
+// 组件卸载时必须还原！
+return () => { window.history.pushState = originalPush; };
+```
+
+> **注意**：monkey-patch 必须严格成对——挂载时替换、卸载时还原。否则组件卸载后，其他页面的路由跳转也会被误拦截，造成全局故障。
+
+#### 3.4.2 `popstate` 的回退与补偿
+
+浏览器的前进/后退按钮会触发 `popstate`，此时浏览器**已经完成了 URL 变更**，无法像 useBlocker 那样"阻止 pop"。需要反向操作：
+
+```javascript
+const handlePopState = () => {
+    if (skipNextRef.current || unmountedRef.current) return;
+    const currentHref = window.location.pathname + window.location.search + window.location.hash;
+    // 记录目标（浏览器已经跳过去的 URL）
+    pendingTargetRef.current = { type: 'pop', to: currentHref };
+    // 关键：立即 push 回原脏页面的 URL，把 URL 拉回来
+    window.history.pushState(window.history.state, '', currentHref);
+    // 弹 Dialog 等用户确认
+    setShowLeaveDialog(true);
+};
+```
+
+**副作用**：用户"取消"时会发现历史栈多了一条记录（因为上面我们 push 了一次），但这不影响功能正确性，只是后退时多退一次。权衡后这是可以接受的。
+
+#### 3.4.3 `skipNextRef` 放行机制
+
+保存成功后，导航是合法的（用户明确点了保存），不应再弹确认。需要一个一次性开关：
+
+```javascript
+// 在 ArticleCreate / ArticleEdit 的 handleSubmit 成功回调中：
+allowNavigation();  // 设 skipNextRef.current = true
+navigate('/');      // 接下来的 pushState / popstate 会被放行，然后 skipNextRef 自动复位为 false
+```
+
+---
+
+## 4. 修改文件清单（实际改动）
+
+| 文件 | 修改类型 | 说明 |
+|------|----------|------|
+| [useUnsavedChanges.js](file:///d:/Desktop/新建文件夹%20(2)/278-20260128-123520/278/frontend/src/hooks/useUnsavedChanges.js) | 🔧 **重写** | 移除 `useBlocker` 导入与调用，改为基于 `beforeunload` + `pushState` 代理 + `popstate` 监听的原生实现，返回接口保持不变 |
+| [ArticleCreate.jsx](file:///d:/Desktop/新建文件夹%20(2)/278-20260128-123520/278/frontend/src/pages/ArticleCreate.jsx) | 🔧 无需改动 | hook 接口不变，直接兼容 |
+| [ArticleEdit.jsx](file:///d:/Desktop/新建文件夹%20(2)/278-20260128-123520/278/frontend/src/pages/ArticleEdit.jsx) | 🔧 无需改动 | hook 接口不变，直接兼容 |
+| FIX_GUIDE.md | 📝 文档 | 追加本次 FIX-014 记录 |
+
+---
+
+## 5. 验证步骤
+
+### 5.1 代码静态验证
+
+| # | 验证项 | 方法 | 预期结果 |
+|---|-------|------|---------|
+| 1 | IDE 语法检查 | `GetDiagnostics` 工具 | 返回空数组，无错误 |
+| 2 | useBlocker 引用清除 | 全文搜索 `useBlocker` | `frontend/src/` 下不再有对 `useBlocker` 的 import 或调用 |
+| 3 | BrowserRouter 未被误改 | 检查 App.jsx | 仍然是 `<BrowserRouter>` + `<Routes>` 架构，未被误迁移为 Data Router |
+| 4 | Hook 导出接口完整 | 检查 useUnsavedChanges.js return 值 | 包含 `isDirty / showLeaveDialog / confirmLeave / cancelLeave / handleBackClick / allowNavigation` 全部 6 个字段 |
+
+### 5.2 运行时验证（需启动服务后执行）
+
+**前置条件**：`docker compose up --build` 启动前后端。登录有效账号。
+
+#### 5.2.1 崩溃修复验证（P0，必须通过）
+
+| # | 场景 | 操作步骤 | 预期结果 |
+|---|------|---------|---------|
+| 1 | 进入发布文章页 | 导航 → "发布文章" | ✅ 页面正常渲染，不触发 Error Boundary，不再白屏 |
+| 2 | 进入编辑文章页 | 首页 → 点任一篇自己文章 → "编辑" | ✅ 页面正常渲染，不触发 Error Boundary |
+| 3 | Error Boundary 未误触发 | 反复进出两个页面 5 次以上 | ✅ 始终不出现"页面加载出错"兜底 UI |
+
+#### 5.2.2 未保存提示功能验证（P0，必须通过）
+
+| # | 场景 | 操作步骤 | 预期结果 |
+|---|------|---------|---------|
+| 4 | 有内容时点返回按钮 | 填写标题/正文 → 点左上角"返回" | ✅ 弹 `window.confirm`："您有未保存的更改，确定要离开吗？"；点取消则留在当前页 |
+| 5 | 有内容时点导航栏其他链接 | 填写标题/正文 → 点顶部"首页"或"搜索" | ✅ 弹自定义 React Dialog（琥珀色图标 + "继续编辑" / "确认离开"双按钮） |
+| 6 | 有内容时按浏览器后退 | 填写标题/正文 → 点浏览器后退按钮 | ✅ 不直接后退，弹自定义 Dialog；点"确认离开"后才真正后退 |
+| 7 | 有内容时刷新页面 | 填写标题/正文 → 按 F5 / Ctrl+R | ✅ 弹浏览器原生离开提示（不同浏览器文案略有差异，一般含"离开此网站？"） |
+| 8 | 保存草稿后离开不弹提示 | 填写内容 → 点"保存草稿" → 保存成功后 | ✅ 直接跳转首页，不弹任何确认提示（`allowNavigation` 生效） |
+| 9 | 保存发布后离开不弹提示 | 填写内容 → 点"立即发布" → 保存成功后 | ✅ 直接跳转首页，不弹任何确认提示 |
+| 10 | 无内容时直接离开无提示 | 不填任何内容 → 点返回、点导航链接 | ✅ 直接离开，无任何弹窗（isDirty=false 正常放行） |
+| 11 | 编辑页面改回原值不提示 | 编辑页加载后 → 修改标题 → 再改回原标题 → 尝试离开 | ✅ 不提示（isDirty=true 仅当与初始值有差异时） |
+| 12 | Dialog 点"继续编辑" | 弹 Dialog → 点"继续编辑" | ✅ Dialog 关闭，停留在当前页面，URL 不变 |
+| 13 | Dialog 点"确认离开" | 弹 Dialog → 点"确认离开" | ✅ 跳转到用户原本想去的目标页面 |
+
+#### 5.2.3 边界场景验证
+
+| # | 场景 | 预期结果 |
+|---|------|---------|
+| 14 | 快速反复进出两个页面 | 不出现 memory leak 告警（Console 无 "Can't perform a React state update on an unmounted component"） |
+| 15 | 组件卸载后按浏览器后退 | 从编辑页保存成功后跳到详情页，再按浏览器后退 → 进入创建页（或相反路径） | 不抛异常，不影响其他页面 |
+| 16 | 保存失败（如断网）后尝试离开 | 保存失败，alert 后仍在编辑页 → 点返回 | ✅ 仍然正常弹确认（因为内容还是脏的，且保存失败没调用 allowNavigation） |
+| 17 | 编辑页保存后不跳转再修改 | 保存成功（此时 isDirty=false）→ 再改几个字 → 尝试离开 | ✅ 再次弹确认（isDirty 再次变为 true） |
+
+---
+
+## 6. 经验教训与预防措施
+
+### 6.1 React Router API 使用守则
+
+1. **使用新 API 前必须检查归属**：
+   - `useBlocker` / `usePrompt` / `useLoaderData` / `useActionData` / `useMatches` 等均属于 **Data Router 专属 API**
+   - 项目使用 `<BrowserRouter>` 时，**只能使用** `<Routes>` 体系的 API：`useNavigate`、`useLocation`、`useParams`、`Link`、`NavLink` 等
+   - 核对方式：查阅 React Router 官方文档的 API 页面，顶部会标注"Type declaration"归属，以及"Added in"版本信息
+   - 最直接的办法：在 [React Router API 索引页](https://reactrouter.com/en/main) 查找 API，注意它被归类在 Routers → Picking a Router → **createBrowserRouter Features** 还是普通 Hooks
+
+2. **无法确定兼容性时，优先查已有的正确用法**：
+   - 搜索当前项目中已有的 `react-router-dom` 导入和用法
+   - 若项目里没有任何地方在用 `useBlocker`，很可能是因为它不兼容
+
+### 6.2 自定义 Hook 开发守则
+
+1. **所有第三方 Hook 的调用都必须在真实浏览器环境中跑过**，不能只靠 IDE 语法检查通过
+2. **对外暴露的接口一旦确定，不要轻易变动**：本次修复中，hook 的返回值签名保持不变，使得 ArticleCreate / ArticleEdit 零修改，降低了回归风险
+3. **涉及全局副作用（如 monkey-patch window 原生 API）必须成对清理**：`useEffect` 的 cleanup 函数是最后的屏障，务必在组件卸载时还原
+
+### 6.3 Code Review Checklist（新增条目）
+
+- [ ] 新增的 React Router Hook 是否在 `<BrowserRouter>` 体系下真正可用？
+- [ ] 是否确认了该 Hook 不需要 Data Router 上下文？
+- [ ] 对全局对象（window.history、document 等）做的 monkey-patch 是否有对应的 cleanup？
+- [ ] 改动后实际启动了前端并手动验证了进入/退出页面都不报错吗？
+- [ ] hook 的对外接口签名是否与调用方匹配？
+
+---
+
+## 7. 相关知识
+
+### 7.1 如何快速判断某个 React Router API 是否需要 Data Router
+
+| API | 需要 Data Router？ | 备注 |
+|-----|-------------------|------|
+| `useNavigate` | ❌ 不需要 | 所有 Router 模式通用 |
+| `useLocation` | ❌ 不需要 | 通用 |
+| `useParams` | ❌ 不需要 | 通用 |
+| `Link` / `NavLink` | ❌ 不需要 | 通用 |
+| `Navigate` 组件 | ❌ 不需要 | 通用 |
+| `Outlet` / `useOutletContext` | ⚠️ 两者皆可，但嵌套 Layout 时 Data Router 更原生 | BrowserRouter 下通过 `<Routes>` 嵌套也能实现 |
+| **`useBlocker`** | **✅ 需要** | 本次问题的主角 |
+| **`usePrompt`** | **✅ 需要** | 未在本项目使用，但同样需注意 |
+| `useLoaderData` / `useActionData` | ✅ 需要 | Data Router loader/action 的产物 |
+| `useFetcher` / `useNavigation` | ✅ 需要 | Data Router 的表单/导航状态 API |
+| `createBrowserRouter` / `RouterProvider` | — | 这就是 Data Router 本身 |
+
+### 7.2 如果未来想迁移到 Data Router
+
+如果后续需要使用大量 Data Router 专属 API，可以考虑整体迁移。主要工作：
+
+1. `App.jsx` 中用 `createBrowserRouter([...])` 描述路由树，替换 `<Routes>`
+2. 把 ProtectedRoute、AdminRoute 从"包装 children 的组件"改写为 route 对象的 `loader` / `beforeEnter`
+3. 测试所有嵌套 Layout（当前使用嵌套 `<Layout>` + `<Outlet index>` 模式）
+4. 回归测试所有路由跳转
+
+建议放在大版本升级时一并进行，不要与功能改动混用提交。
+
+---
+
+## 8. 参考资料
+
+- [React Router 官方文档：Picking a Router](https://reactrouter.com/en/main/routers/picking-a-router) — 明确说明 BrowserRouter 与 createBrowserRouter 的差异
+- [React Router 官方文档：useBlocker](https://reactrouter.com/en/main/hooks/use-blocker) — 顶部标注 "This API is only available in Data Routers"
+- [MDN: Window - beforeunload 事件](https://developer.mozilla.org/zh-CN/docs/Web/API/Window/beforeunload_event) — 浏览器原生离开拦截机制
+- [MDN: History - pushState()](https://developer.mozilla.org/zh-CN/docs/Web/API/History/pushState) — HTML5 History API 基础
+- [MDN: Window - popstate 事件](https://developer.mozilla.org/zh-CN/docs/Web/API/Window/popstate_event) — 前进/后退时的监听事件
+
+---
+
+**文档版本**：v1.0（文章创建/编辑页面"页面加载出错"修复）  
+**最后更新**：2026-06-19
