@@ -1,9 +1,10 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useMemo, useRef } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { HttpUtil } from '../utils/HttpUtil';
-import { PenTool, Save, ArrowLeft, Sparkles, Tag, Plus, X } from 'lucide-react';
+import { PenTool, Save, ArrowLeft, Sparkles, Tag, Plus, X, AlertTriangle } from 'lucide-react';
 import MarkdownEditor from '../components/MarkdownEditor';
 import CoverImageUploader from '../components/CoverImageUploader';
+import useUnsavedChanges from '../hooks/useUnsavedChanges';
 
 const ArticleEdit = () => {
     const { id } = useParams();
@@ -16,6 +17,14 @@ const ArticleEdit = () => {
     const [showTagInput, setShowTagInput] = useState(false);
     const [newTagName, setNewTagName] = useState('');
     const [creatingTag, setCreatingTag] = useState(false);
+    const initialDataRef = useRef({ title: '', content: '' });
+
+    const isDirty = useMemo(() => {
+        const initial = initialDataRef.current;
+        return formData.title !== initial.title || formData.content !== initial.content;
+    }, [formData.title, formData.content]);
+
+    const { handleBackClick, showLeaveDialog, confirmLeave, cancelLeave, allowNavigation } = useUnsavedChanges(isDirty);
 
     useEffect(() => {
         const fetchData = async () => {
@@ -24,12 +33,15 @@ const ArticleEdit = () => {
                     HttpUtil.get(`/article/${id}`),
                     HttpUtil.get('/tag')
                 ]);
+                const initialTitle = articleData.title;
+                const initialContent = articleData.content;
                 setFormData({ 
-                    title: articleData.title, 
-                    content: articleData.content, 
+                    title: initialTitle, 
+                    content: initialContent, 
                     status: articleData.status || 'published',
                     coverImage: articleData.coverImage || ''
                 });
+                initialDataRef.current = { title: initialTitle, content: initialContent };
                 setTags(tagsData);
                 if (articleData.tags && articleData.tags.length > 0) {
                     setSelectedTagIds(articleData.tags.map(t => t.id));
@@ -78,6 +90,8 @@ const ArticleEdit = () => {
                 ...formData,
                 tagIds: selectedTagIds
             });
+            initialDataRef.current = { title: formData.title, content: formData.content };
+            allowNavigation();
             navigate(`/article/${id}`);
         } catch (error) {
             alert('保存失败: ' + error.message);
@@ -95,7 +109,7 @@ const ArticleEdit = () => {
     return (
         <div className="max-w-6xl mx-auto space-y-6">
              <button 
-                onClick={() => navigate(-1)} 
+                onClick={() => handleBackClick(() => navigate(-1))} 
                 className="flex items-center text-gray-500 hover:text-gray-800 transition-colors bg-white/50 px-3 py-1.5 rounded-lg border border-transparent hover:border-gray-200"
             >
                 <ArrowLeft size={18} className="mr-1" /> 取消
@@ -267,6 +281,40 @@ const ArticleEdit = () => {
                     </div>
                 </form>
             </div>
+
+            {showLeaveDialog && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black bg-opacity-40 backdrop-filter backdrop-blur-sm">
+                    <div className="bg-white rounded-2xl shadow-2xl max-w-sm w-full transform transition-all">
+                        <div className="p-6">
+                            <div className="flex items-center gap-3 mb-4">
+                                <div className="p-2 bg-amber-100 rounded-full text-amber-500">
+                                    <AlertTriangle size={24} />
+                                </div>
+                                <h3 className="text-xl font-bold text-gray-900">离开页面</h3>
+                            </div>
+                            
+                            <p className="text-gray-500 text-sm leading-relaxed mb-6">
+                                您有未保存的更改，确定要离开吗？离开后您的编辑内容将会丢失。
+                            </p>
+                            
+                            <div className="flex gap-3">
+                                <button 
+                                    onClick={cancelLeave}
+                                    className="flex-1 px-4 py-2.5 bg-gray-50 text-gray-700 font-semibold rounded-xl hover:bg-gray-100 transition-colors"
+                                >
+                                    继续编辑
+                                </button>
+                                <button 
+                                    onClick={confirmLeave}
+                                    className="flex-1 px-4 py-2.5 bg-amber-500 text-white font-semibold rounded-xl hover:bg-amber-600 shadow-lg shadow-amber-500/30 transition-colors"
+                                >
+                                    确认离开
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 };
