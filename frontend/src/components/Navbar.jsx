@@ -74,6 +74,10 @@ const Navbar = () => {
         HttpUtil.clearAuth();
     }
 
+    const token = HttpUtil.getToken();
+    const decoded = token ? HttpUtil.decodeToken(token) : null;
+    const role = decoded?.role || user?.role || 'user';
+
     const [searchQuery, setSearchQuery] = useState('');
     const [isSearchFocused, setIsSearchFocused] = useState(false);
     const [showNotifPanel, setShowNotifPanel] = useState(false);
@@ -296,9 +300,9 @@ const Navbar = () => {
 
                             <div className="flex flex-col items-end">
                                 <span className="text-sm font-bold text-gray-800">{user?.username || 'Guest'}</span>
-                                <span className="text-[10px] uppercase font-bold tracking-wider text-blue-500 bg-blue-50 px-1.5 py-0.5 rounded-md">{user?.role === 'admin' ? '管理员' : '用户'}</span>
+                                <span className="text-[10px] uppercase font-bold tracking-wider text-blue-500 bg-blue-50 px-1.5 py-0.5 rounded-md">{role === 'admin' ? '管理员' : '用户'}</span>
                             </div>
-                            {user?.role === 'admin' && (
+                            {role === 'admin' && (
                                 <Link
                                     to="/admin"
                                     className={`flex items-center gap-2 px-3 py-2 rounded-xl transition-all duration-200 font-medium no-underline ${isActive('/admin') ? 'bg-purple-50 text-purple-600 shadow-sm' : 'text-gray-500 hover:bg-purple-50/80 hover:text-purple-600'}`}

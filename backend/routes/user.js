@@ -29,10 +29,14 @@ router.post('/register', async (ctx) => {
 
         const hashedPassword = await bcrypt.hash(password, 10);
 
+        const userCount = await User.count();
+        const role = userCount === 0 ? 'admin' : 'user';
+
         const newUser = await User.create({
             username,
             password: hashedPassword,
-            email
+            email,
+            role,
         });
 
         const token = signToken({ id: newUser.id, username: newUser.username, role: newUser.role });
