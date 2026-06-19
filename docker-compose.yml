@@ -1,53 +1,128 @@
 version: '3.8'
 
+# ==============================================================================
+# IT 技术交流平台 - Docker Compose 配置
+# ------------------------------------------------------------------------------
+# 环境变量说明：
+# - 所有环境变量均可通过 .env 文件或系统环境变量覆盖
+# - 生产环境请务必修改默认密码和密钥
+# ==============================================================================
+
 services:
+  # ----------------------------------------------------------------------------
+  # MySQL 数据库服务
+  # ----------------------------------------------------------------------------
   db:
     image: mysql:8.0
     container_name: it_platform_db
-    restart: always
+    restart: unless-stopped
     environment:
-      MYSQL_ROOT_PASSWORD: root
-      MYSQL_DATABASE: it_platform
+      # MySQL root 用户密码（生产环境必须修改）
+      MYSQL_ROOT_PASSWORD: ${DB_PASSWORD:-root}
+      # 自动创建的数据库名称
+      MYSQL_DATABASE: ${DB_NAME:-it_platform}
     ports:
-      - "3306:3306"
+      - "${DB_PORT:-3306}:3306"
     volumes:
       - db_data:/var/lib/mysql
     command: --default-authentication-plugin=mysql_native_password
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${DB_PASSWORD:-root}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    networks:
+      - app-network
 
+  # ----------------------------------------------------------------------------
+  # 后端 API 服务
+  # ----------------------------------------------------------------------------
   backend:
-    build: 
+    build:
       context: ./backend
+      dockerfile: Dockerfile
     container_name: it_platform_backend
-    restart: always
+    restart: unless-stopped
     ports:
-      - "5160:5160"
+      - "${BACKEND_PORT:-5160}:5160"
     environment:
-      PORT: 5160
+      # 运行环境: development, test, production
+      NODE_ENV: ${NODE_ENV:-production}
+      # 服务监听端口
+      PORT: ${BACKEND_PORT:-5160}
+      # 数据库连接配置
       DB_HOST: db
-      DB_USER: root
-      DB_PASSWORD: root
-      DB_NAME: it_platform
-      SEED_ADMIN_USERNAME: admin
-      SEED_ADMIN_PASSWORD: admin123
-      SEED_ADMIN_EMAIL: admin@example.com
-      SEED_USER_USERNAME: user
-      SEED_USER_PASSWORD: user123
-      SEED_USER_EMAIL: user@example.com
+      DB_PORT: 3306
+      DB_USER: ${DB_USER:-root}
+      DB_PASSWORD: ${DB_PASSWORD:-root}
+      DB_NAME: ${DB_NAME:-it_platform}
+      # JWT 配置（生产环境必须修改为复杂随机字符串）
+      JWT_SECRET: ${JWT_SECRET:-your_super_secret_jwt_key_should_be_changed}
+      JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-24h}
+      # 文件上传配置
+      UPLOAD_MAX_SIZE: ${UPLOAD_MAX_SIZE:-5242880}
+      UPLOAD_ALLOWED_TYPES: ${UPLOAD_ALLOWED_TYPES:-image/jpeg,image/png,image/gif,image/webp,image/jpg}
+      # 初始管理员账号（首次启动自动创建）
+      SEED_ADMIN_USERNAME: ${SEED_ADMIN_USERNAME:-admin}
+      SEED_ADMIN_PASSWORD: ${SEED_ADMIN_PASSWORD:-admin123}
+      SEED_ADMIN_EMAIL: ${SEED_ADMIN_EMAIL:-admin@example.com}
+      # 初始普通用户账号（首次启动自动创建）
+      SEED_USER_USERNAME: ${SEED_USER_USERNAME:-user}
+      SEED_USER_PASSWORD: ${SEED_USER_PASSWORD:-user123}
+      SEED_USER_EMAIL: ${SEED_USER_EMAIL:-user@example.com}
     depends_on:
-      - db
+      db:
+        condition: service_healthy
     volumes:
       - uploads_data:/app/public/uploads
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:5160/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+    networks:
+      - app-network
 
+  # ----------------------------------------------------------------------------
+  # 前端 Web 服务
+  # ----------------------------------------------------------------------------
   frontend:
-    build: 
+    build:
       context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://localhost:5160}
     container_name: it_platform_frontend
-    restart: always
+    restart: unless-stopped
     ports:
-      - "3160:3160"
+      - "${FRONTEND_PORT:-3160}:3160"
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3160/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+    networks:
+      - app-network
 
+# ------------------------------------------------------------------------------
+# 数据卷配置
+# ------------------------------------------------------------------------------
 volumes:
   db_data:
+    name: it_platform_db_data
   uploads_data:
+    name: it_platform_uploads_data
+
+# ------------------------------------------------------------------------------
+# 网络配置
+# ------------------------------------------------------------------------------
+networks:
+  app-network:
+    driver: bridge
+    name: it_platform_network

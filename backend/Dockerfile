@@ -2,17 +2,13 @@ FROM node:18-alpine
 
 WORKDIR /app
 
-COPY package.json pnpm-lock.yaml* ./
+COPY package.json package-lock.json* ./
 
-# Install pnpm
-RUN npm install -g pnpm
-
-# Install dependencies
-RUN pnpm install
+RUN npm config set registry https://registry.npmmirror.com && \
+    npm ci
 
 COPY . .
 
-# Ensure uploads directory exists
 RUN mkdir -p /app/public/uploads
 
 EXPOSE 5160

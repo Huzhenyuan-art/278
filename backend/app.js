@@ -3,7 +3,17 @@ const bodyParser = require('koa-bodyparser');
 const logger = require('koa-logger');
 const serve = require('koa-static');
 const path = require('path');
-const config = require('./config/default');
+
+const env = process.env.NODE_ENV || 'development';
+let config;
+try {
+  config = require(`./config/${env}`);
+} catch (e) {
+  console.warn(`未找到 ${env} 环境配置，使用默认配置`);
+  config = require('./config/default');
+}
+
+console.log(`当前运行环境: ${env}`);
 
 const app = new Koa();
 

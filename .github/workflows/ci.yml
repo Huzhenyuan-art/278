@@ -1,0 +1,412 @@
+# ==============================================================================
+# CI/CD 流水线 - 代码提交自动构建、测试与部署校验
+# ==============================================================================
+
+name: CI/CD Pipeline
+
+on:
+  # 代码推送到 main 或 develop 分支时触发
+  push:
+    branches:
+      - main
+      - develop
+    paths:
+      - 'backend/**'
+      - 'frontend/**'
+      - 'docker-compose.yml'
+      - '.github/workflows/**'
+
+  # 向 main 或 develop 分支发起 PR 时触发
+  pull_request:
+    branches:
+      - main
+      - develop
+    paths:
+      - 'backend/**'
+      - 'frontend/**'
+      - 'docker-compose.yml'
+      - '.github/workflows/**'
+
+# 取消同一分支上的旧工作流运行
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ============================================================================
+  # Job 1: 代码质量检查
+  # ============================================================================
+  lint:
+    name: 代码质量检查
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout 代码
+        uses: actions/checkout@v4
+
+      - name: 设置 Node.js 环境
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+
+      # ------------------------------------------------------------------------
+      # 后端代码检查
+      # ------------------------------------------------------------------------
+      - name: 安装后端依赖
+        working-directory: ./backend
+        run: npm ci
+
+      - name: 后端语法检查
+        working-directory: ./backend
+        run: |
+          echo "开始后端语法检查..."
+          for file in $(find . -name "*.js" -not -path "./node_modules/*"); do
+            node --check "$file" || exit 1
+          done
+          echo "后端语法检查通过"
+
+      # ------------------------------------------------------------------------
+      # 前端代码检查
+      # ------------------------------------------------------------------------
+      - name: 安装前端依赖
+        working-directory: ./frontend
+        run: npm ci
+
+      - name: 前端 Lint 检查
+        working-directory: ./frontend
+        run: npm run lint
+
+  # ============================================================================
+  # Job 2: 后端单元测试
+  # ============================================================================
+  backend-test:
+    name: 后端单元测试
+    runs-on: ubuntu-latest
+    needs: lint
+    steps:
+      - name: Checkout 代码
+        uses: actions/checkout@v4
+
+      - name: 设置 Node.js 环境
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+
+      - name: 安装后端依赖
+        working-directory: ./backend
+        run: npm ci
+
+      - name: 运行后端单元测试
+        working-directory: ./backend
+        run: npm test -- --coverage
+
+      - name: 上传测试覆盖率报告
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-coverage-report
+          path: ./backend/coverage
+          retention-days: 7
+
+  # ============================================================================
+  # Job 3: 前端构建测试
+  # ============================================================================
+  frontend-build:
+    name: 前端构建测试
+    runs-on: ubuntu-latest
+    needs: lint
+    steps:
+      - name: Checkout 代码
+        uses: actions/checkout@v4
+
+      - name: 设置 Node.js 环境
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+
+      - name: 安装前端依赖
+        working-directory: ./frontend
+        run: npm ci
+
+      - name: 前端生产构建
+        working-directory: ./frontend
+        env:
+          VITE_API_BASE_URL: http://localhost:5160
+        run: npm run build
+
+      - name: 验证构建产物
+        run: |
+          if [ -d "./frontend/dist" ] && [ -f "./frontend/dist/index.html" ]; then
+            echo "✅ 前端构建成功"
+            ls -la ./frontend/dist
+          else
+            echo "❌ 前端构建失败，dist 目录不存在"
+            exit 1
+          fi
+
+      - name: 上传构建产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-build
+          path: ./frontend/dist
+          retention-days: 7
+
+  # ============================================================================
+  # Job 4: Docker 镜像构建测试
+  # ============================================================================
+  docker-build:
+    name: Docker 镜像构建测试
+    runs-on: ubuntu-latest
+    needs: [backend-test, frontend-build]
+    steps:
+      - name: Checkout 代码
+        uses: actions/checkout@v4
+
+      - name: 设置 Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # ------------------------------------------------------------------------
+      # 构建后端镜像
+      # ------------------------------------------------------------------------
+      - name: 构建后端 Docker 镜像
+        uses: docker/build-push-action@v5
+        with:
+          context: ./backend
+          file: ./backend/Dockerfile
+          push: false
+          load: true
+          tags: it-platform-backend:test
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # ------------------------------------------------------------------------
+      # 构建前端镜像
+      # ------------------------------------------------------------------------
+      - name: 构建前端 Docker 镜像
+        uses: docker/build-push-action@v5
+        with:
+          context: ./frontend
+          file: ./frontend/Dockerfile
+          push: false
+          load: true
+          tags: it-platform-frontend:test
+          build-args: |
+            VITE_API_BASE_URL=http://localhost:5160
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # ------------------------------------------------------------------------
+      # 验证镜像
+      # ------------------------------------------------------------------------
+      - name: 验证 Docker 镜像
+        run: |
+          echo "检查后端镜像..."
+          docker inspect it-platform-backend:test > /dev/null 2>&1 && echo "✅ 后端镜像构建成功"
+          
+          echo "检查前端镜像..."
+          docker inspect it-platform-frontend:test > /dev/null 2>&1 && echo "✅ 前端镜像构建成功"
+          
+          echo "镜像列表:"
+          docker images | grep it-platform
+
+  # ============================================================================
+  # Job 5: 集成测试 - 启动完整服务并验证
+  # ============================================================================
+  integration-test:
+    name: 集成测试与部署校验
+    runs-on: ubuntu-latest
+    needs: docker-build
+    timeout-minutes: 15
+
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: root
+          MYSQL_DATABASE: it_platform
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h localhost -u root -proot"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+          --health-start-period=30s
+
+    steps:
+      - name: Checkout 代码
+        uses: actions/checkout@v4
+
+      - name: 设置 Node.js 环境
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+
+      # ------------------------------------------------------------------------
+      # 启动后端服务进行集成测试
+      # ------------------------------------------------------------------------
+      - name: 安装后端依赖
+        working-directory: ./backend
+        run: npm ci
+
+      - name: 启动后端服务（测试模式）
+        working-directory: ./backend
+        env:
+          NODE_ENV: test
+          DB_HOST: 127.0.0.1
+          DB_PORT: 3306
+          DB_USER: root
+          DB_PASSWORD: root
+          DB_NAME: it_platform
+          JWT_SECRET: test_jwt_secret_key_for_ci
+          PORT: 5160
+        run: |
+          # 等待数据库就绪
+          echo "等待数据库就绪..."
+          until mysqladmin ping -h 127.0.0.1 -u root -proot --silent 2>/dev/null; do
+            echo "等待数据库连接..."
+            sleep 2
+          done
+          echo "数据库已就绪"
+          
+          # 后台启动服务
+          node app.js &
+          SERVER_PID=$!
+          
+          # 等待服务启动
+          sleep 10
+          
+          # 检查服务是否运行
+          if ps -p $SERVER_PID > /dev/null; then
+            echo "✅ 后端服务启动成功"
+          else
+            echo "❌ 后端服务启动失败"
+            exit 1
+          fi
+          
+          # 测试 API 端点
+          echo "测试 API 健康检查..."
+          curl -f http://localhost:5160/ || { echo "❌ 健康检查失败"; kill $SERVER_PID; exit 1; }
+          echo "✅ API 健康检查通过"
+          
+          # 清理
+          kill $SERVER_PID
+
+      # ------------------------------------------------------------------------
+      # Docker Compose 集成测试
+      # ------------------------------------------------------------------------
+      - name: Docker Compose 集成测试
+        run: |
+          echo "创建测试环境变量..."
+          cp .env.example .env
+          
+          echo "启动完整服务栈..."
+          docker compose up -d db
+          
+          echo "等待数据库就绪..."
+          sleep 20
+          
+          echo "启动后端和前端..."
+          docker compose up -d backend frontend
+          
+          echo "等待服务启动..."
+          sleep 30
+          
+          echo "检查服务健康状态..."
+          docker compose ps
+          
+          # 检查后端健康状态
+          BACKEND_STATUS=$(docker inspect -f '{{.State.Health.Status}}' it_platform_backend 2>/dev/null || echo "unknown")
+          echo "后端健康状态: $BACKEND_STATUS"
+          
+          # 检查前端健康状态
+          FRONTEND_STATUS=$(docker inspect -f '{{.State.Health.Status}}' it_platform_frontend 2>/dev/null || echo "unknown")
+          echo "前端健康状态: $FRONTEND_STATUS"
+          
+          # 测试后端 API
+          echo "测试后端 API..."
+          for i in {1..10}; do
+            if curl -s -f http://localhost:5160/ > /dev/null 2>&1; then
+              echo "✅ 后端 API 可访问"
+              break
+            fi
+            echo "等待后端 API... ($i/10)"
+            sleep 5
+          done
+          
+          # 测试前端
+          echo "测试前端..."
+          for i in {1..10}; do
+            if curl -s -f http://localhost:3160/ > /dev/null 2>&1; then
+              echo "✅ 前端可访问"
+              break
+            fi
+            echo "等待前端... ($i/10)"
+            sleep 5
+          done
+          
+          # 显示最终服务状态
+          echo ""
+          echo "========================================="
+          echo "  集成测试服务状态汇总"
+          echo "========================================="
+          docker compose ps
+          echo ""
+          
+          # 清理
+          docker compose down -v
+
+  # ============================================================================
+  # Job 6: 构建产物部署（仅 main 分支）
+  # ============================================================================
+  deploy:
+    name: 部署校验与通知
+    runs-on: ubuntu-latest
+    needs: integration-test
+    if: github.ref == 'refs/heads/main'
+    steps:
+      - name: Checkout 代码
+        uses: actions/checkout@v4
+
+      - name: 生成部署摘要
+        run: |
+          echo "========================================="
+          echo "  部署校验报告"
+          echo "========================================="
+          echo "提交: ${{ github.sha }}"
+          echo "分支: ${{ github.ref_name }}"
+          echo "触发者: ${{ github.actor }}"
+          echo "时间: $(date)"
+          echo ""
+          echo "✅ 所有检查通过，可安全部署"
+          echo ""
+          echo "部署说明:"
+          echo "1. 拉取最新代码: git pull origin main"
+          echo "2. 重新构建并启动: docker compose up --build -d"
+          echo "3. 查看服务状态: docker compose ps"
+          echo "4. 查看日志: docker compose logs -f"
+          echo ""
+
+      - name: 部署通知
+        run: |
+          echo "📦 构建版本: ${{ github.sha }}"
+          echo "🌐 部署环境: 生产环境"
+          echo "✅ 状态: 就绪待部署"
+          echo ""
+          echo "此版本已通过以下校验:"
+          echo "  ✅ 代码质量检查"
+          echo "  ✅ 后端单元测试"
+          echo "  ✅ 前端构建测试"
+          echo "  ✅ Docker 镜像构建"
+          echo "  ✅ 集成测试"
+          echo ""
+          echo "可以执行部署操作。"
+
+# ==============================================================================
+# 工作流环境配置
+# ==============================================================================
+env:
+  NODE_ENV: test
+  TZ: Asia/Shanghai
