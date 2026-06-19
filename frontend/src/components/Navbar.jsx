@@ -1,6 +1,6 @@
 import React from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
-import { LogOut, PlusSquare, Code2, Home, Settings } from 'lucide-react';
+import { LogOut, PlusSquare, Code2, Home, Settings, FileText } from 'lucide-react';
 
 const Navbar = () => {
     const navigate = useNavigate();
@@ -15,6 +15,7 @@ const Navbar = () => {
     };
 
     const isActive = (path) => location.pathname === path;
+    const isPrefixActive = (prefix) => location.pathname.startsWith(prefix);
 
     return (
         <nav className="fixed top-0 w-full z-50 glass border-b border-gray-100/50">
@@ -38,6 +39,14 @@ const Navbar = () => {
                         >
                             <Home size={18} />
                             <span>首页</span>
+                        </Link>
+
+                        <Link 
+                            to="/my/articles" 
+                            className={`hidden md:flex items-center gap-2 px-4 py-2 rounded-xl transition-all duration-200 font-medium no-underline ${isPrefixActive('/my') ? 'bg-blue-50 text-blue-600 shadow-sm' : 'text-gray-600 hover:bg-gray-50/80 hover:text-gray-900'}`}
+                        >
+                            <FileText size={18} />
+                            <span>我的文章</span>
                         </Link>
 
                         <Link 

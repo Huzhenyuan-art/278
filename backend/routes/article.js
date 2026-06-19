@@ -5,10 +5,18 @@ const { sanitizeMarkdown } = require('../utils/sanitize');
 const { Op } = require('sequelize');
 
 const router = new Router({
-    prefix: '/article' // Singular path
+    prefix: '/article'
 });
 
-// Middleware to check auth
+const ARTICLE_STATUS = {
+    DRAFT: 'draft',
+    PUBLISHED: 'published'
+};
+
+const VALID_STATUSES = Object.values(ARTICLE_STATUS);
+
+const isValidStatus = (status) => VALID_STATUSES.includes(status);
+
 const authMiddleware = async (ctx, next) => {
     const token = ctx.header.authorization?.replace('Bearer ', '');
     if (!token) {
@@ -175,18 +183,87 @@ router.post('/:id/like', authMiddleware, async (ctx) => {
     }
 });
 
+// Get current user's articles (with status filter)
+router.get('/mine/list', authMiddleware, async (ctx) => {
+    const { status, sort } = ctx.query;
+    const userId = ctx.state.user.id;
+
+    let where = { authorId: userId };
+    if (status && isValidStatus(status)) {
+        where.status = status;
+    }
+
+    const sortOrder = sort === 'asc' ? 'ASC' : 'DESC';
+
+    const articles = await Article.findAll({
+        where,
+        include: [
+            { model: User, attributes: ['username'] },
+            { model: Tag, through: { attributes: [] }, attributes: ['id', 'name', 'color'] }
+        ],
+        order: [['createdAt', sortOrder]],
+        distinct: true
+    });
+
+    const articlesWithLike = await attachLikeInfo(articles, userId);
+    ctx.body = articlesWithLike.map(a => ({
+        ...a,
+        tags: a.tags ? a.tags.map(t => t.toJSON ? t.toJSON() : t) : []
+    }));
+});
+
+// Toggle article status (draft <-> published)
+router.patch('/:id/status', authMiddleware, async (ctx) => {
+    const article = await Article.findByPk(ctx.params.id);
+    if (!article) {
+        ctx.throw(404, '文章未找到');
+    }
+    if (article.authorId !== ctx.state.user.id) {
+        ctx.throw(403, '无权修改此文章的状态');
+    }
+
+    const { status } = ctx.request.body;
+    if (!status || !isValidStatus(status)) {
+        ctx.throw(400, `无效的状态值，仅允许：${VALID_STATUSES.join('、')}`);
+    }
+
+    const oldStatus = article.status;
+    if (oldStatus === status) {
+        ctx.body = {
+            id: article.id,
+            status: article.status,
+            changed: false,
+            message: '文章状态未发生变化'
+        };
+        return;
+    }
+
+    await article.update({ status });
+
+    ctx.body = {
+        id: article.id,
+        status: article.status,
+        oldStatus,
+        changed: true,
+        message: `文章已${status === ARTICLE_STATUS.PUBLISHED ? '发布' : '转为草稿'}`
+    };
+});
+
 // Create article
 router.post('/', authMiddleware, async (ctx) => {
     const { title, content, status, tagIds } = ctx.request.body;
     if (!title || !content) {
         ctx.throw(400, '标题和内容为必填项');
     }
+    if (status !== undefined && !isValidStatus(status)) {
+        ctx.throw(400, `无效的状态值，仅允许：${VALID_STATUSES.join('、')}`);
+    }
     const sanitizedTitle = String(title).trim().slice(0, 100);
     const sanitizedContent = sanitizeMarkdown(content);
     const article = await Article.create({
         title: sanitizedTitle,
         content: sanitizedContent,
-        status: status || 'published',
+        status: status || ARTICLE_STATUS.PUBLISHED,
         authorId: ctx.state.user.id
     });
 
@@ -196,7 +273,10 @@ router.post('/', authMiddleware, async (ctx) => {
     }
 
     const articleWithTags = await Article.findByPk(article.id, {
-        include: [{ model: Tag, through: { attributes: [] }, attributes: ['id', 'name', 'color'] }]
+        include: [
+            { model: User, attributes: ['username'] },
+            { model: Tag, through: { attributes: [] }, attributes: ['id', 'name', 'color'] }
+        ]
     });
 
     ctx.body = {
@@ -212,7 +292,7 @@ router.put('/:id', authMiddleware, async (ctx) => {
         ctx.throw(404, '文章未找到');
     }
     if (article.authorId !== ctx.state.user.id) {
-        ctx.throw(403, '权限不足');
+        ctx.throw(403, '权限不足，仅作者可编辑此文');
     }
     const { title, content, status, tagIds } = ctx.request.body;
     const updateData = {};
@@ -223,6 +303,9 @@ router.put('/:id', authMiddleware, async (ctx) => {
         updateData.content = sanitizeMarkdown(content);
     }
     if (status !== undefined) {
+        if (!isValidStatus(status)) {
+            ctx.throw(400, `无效的状态值，仅允许：${VALID_STATUSES.join('、')}`);
+        }
         updateData.status = status;
     }
     await article.update(updateData);
@@ -256,10 +339,10 @@ router.delete('/:id', authMiddleware, async (ctx) => {
         ctx.throw(404, '文章未找到');
     }
     if (article.authorId !== ctx.state.user.id) {
-        ctx.throw(403, '权限不足');
+        ctx.throw(403, '权限不足，仅作者可删除此文');
     }
     await article.destroy();
-    ctx.body = { message: 'Article deleted' };
+    ctx.body = { message: '文章已删除' };
 });
 
 module.exports = router;
