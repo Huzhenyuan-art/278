@@ -1,24 +1,11 @@
 const Router = require('koa-router');
 const { Tag, Article, ArticleTag, User } = require('../models');
-const { verifyToken } = require('../utils/jwt');
+const { authMiddleware } = require('../utils/rbac');
 const { Op } = require('sequelize');
 
 const router = new Router({
     prefix: '/tag'
 });
-
-const authMiddleware = async (ctx, next) => {
-    const token = ctx.header.authorization?.replace('Bearer ', '');
-    if (!token) {
-        ctx.throw(401, '需要身份验证');
-    }
-    const decoded = verifyToken(token);
-    if (!decoded) {
-        ctx.throw(401, '无效的令牌');
-    }
-    ctx.state.user = decoded;
-    await next();
-};
 
 router.get('/', async (ctx) => {
     const tags = await Tag.findAll({

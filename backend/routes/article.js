@@ -1,6 +1,6 @@
 const Router = require('koa-router');
 const { Article, User, Like, Tag, ArticleTag } = require('../models');
-const { verifyToken } = require('../utils/jwt');
+const { authMiddleware, optionalAuthMiddleware, ROLES } = require('../utils/rbac');
 const { sanitizeMarkdown } = require('../utils/sanitize');
 const { Op } = require('sequelize');
 
@@ -16,31 +16,6 @@ const ARTICLE_STATUS = {
 const VALID_STATUSES = Object.values(ARTICLE_STATUS);
 
 const isValidStatus = (status) => VALID_STATUSES.includes(status);
-
-const authMiddleware = async (ctx, next) => {
-    const token = ctx.header.authorization?.replace('Bearer ', '');
-    if (!token) {
-        ctx.throw(401, '需要身份验证');
-    }
-    const decoded = verifyToken(token);
-    if (!decoded) {
-        ctx.throw(401, '无效的令牌');
-    }
-    ctx.state.user = decoded;
-    await next();
-};
-
-// Middleware to optionally get user (for public endpoints)
-const optionalAuthMiddleware = async (ctx, next) => {
-    const token = ctx.header.authorization?.replace('Bearer ', '');
-    if (token) {
-        const decoded = verifyToken(token);
-        if (decoded) {
-            ctx.state.user = decoded;
-        }
-    }
-    await next();
-};
 
 // Attach like count and liked status to articles
 const attachLikeInfo = async (articles, userId) => {

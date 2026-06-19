@@ -1,38 +1,12 @@
 const Router = require('koa-router');
 const { Comment, User, Article } = require('../models');
-const { verifyToken } = require('../utils/jwt');
+const { authMiddleware, optionalAuthMiddleware } = require('../utils/rbac');
 const { sanitizeHtml } = require('../utils/sanitize');
 const { Op } = require('sequelize');
 
 const router = new Router({
     prefix: '/comment'
 });
-
-// Middleware to check auth
-const authMiddleware = async (ctx, next) => {
-    const token = ctx.header.authorization?.replace('Bearer ', '');
-    if (!token) {
-        ctx.throw(401, '需要身份验证');
-    }
-    const decoded = verifyToken(token);
-    if (!decoded) {
-        ctx.throw(401, '无效的令牌');
-    }
-    ctx.state.user = decoded;
-    await next();
-};
-
-// Middleware to optionally get user (for public endpoints)
-const optionalAuthMiddleware = async (ctx, next) => {
-    const token = ctx.header.authorization?.replace('Bearer ', '');
-    if (token) {
-        const decoded = verifyToken(token);
-        if (decoded) {
-            ctx.state.user = decoded;
-        }
-    }
-    await next();
-};
 
 const DEFAULT_PAGE_SIZE = 5;
 const MAX_PAGE_SIZE = 50;

@@ -30,6 +30,7 @@ const authRoutes = require('./routes/user');
 const articleRoutes = require('./routes/article');
 const tagRoutes = require('./routes/tag');
 const commentRoutes = require('./routes/comment');
+const adminRoutes = require('./routes/admin');
 
 // Initialize DB
 initDb();
@@ -39,6 +40,7 @@ app.use(authRoutes.routes()).use(authRoutes.allowedMethods());
 app.use(articleRoutes.routes()).use(articleRoutes.allowedMethods());
 app.use(tagRoutes.routes()).use(tagRoutes.allowedMethods());
 app.use(commentRoutes.routes()).use(commentRoutes.allowedMethods());
+app.use(adminRoutes.routes()).use(adminRoutes.allowedMethods());
 
 app.use(async ctx => {
     if (ctx.path === '/') {
