@@ -4,7 +4,6 @@ import { HttpUtil } from '../utils/HttpUtil';
 import { formatRelativeTime } from '../utils/dateUtils';
 import { MessageSquare, Send, Trash2, Loader2, User as UserIcon, ChevronDown, Edit2, Reply, X, Check } from 'lucide-react';
 import Modal from './Modal';
-import DOMPurify from 'dompurify';
 
 const PAGE_SIZE = 5;
 
@@ -184,7 +183,7 @@ const CommentItem = ({ comment, depth, articleId, onReplySubmit, onEditSubmit, o
                         </form>
                     ) : (
                         <p className={`text-sm leading-relaxed whitespace-pre-wrap break-words ${isSoftDeleted ? 'text-gray-400 italic' : 'text-gray-600'}`}>
-                            {DOMPurify.sanitize(comment.content || '')}
+                            {comment.content || ''}
                         </p>
                     )}
 

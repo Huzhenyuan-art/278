@@ -2,8 +2,8 @@ import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { HttpUtil } from '../utils/HttpUtil';
 import { formatDate } from '../utils/dateUtils';
-import { getFullImageUrl, getCurrentUser, canModifyArticle, safeJsonParse } from '../utils/common';
-import { User, Calendar, ArrowLeft, Trash2, Edit, Heart, Tag } from 'lucide-react';
+import { getFullImageUrl, getCurrentUser, canModifyArticle, isLoggedIn } from '../utils/common';
+import { User, Calendar, ArrowLeft, Trash2, Edit, Heart, Tag, AlertCircle, RefreshCw } from 'lucide-react';
 import Modal from '../components/Modal';
 import CommentSection from '../components/CommentSection';
 import MarkdownPreview from '../components/MarkdownPreview';
@@ -13,22 +13,27 @@ const ArticleDetail = () => {
     const navigate = useNavigate();
     const [article, setArticle] = useState(null);
     const [loading, setLoading] = useState(true);
+    const [error, setError] = useState(null);
     const [isLiking, setIsLiking] = useState(false);
     const user = getCurrentUser() || {};
 
     const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
 
+    const fetchArticle = async () => {
+        setLoading(true);
+        setError(null);
+        try {
+            const data = await HttpUtil.get(`/article/${id}`);
+            setArticle(data);
+        } catch (err) {
+            console.error("Failed to fetch article", err);
+            setError(err.message || '加载文章失败，请稍后重试');
+        } finally {
+            setLoading(false);
+        }
+    };
+
     useEffect(() => {
-        const fetchArticle = async () => {
-            try {
-                const data = await HttpUtil.get(`/article/${id}`);
-                setArticle(data);
-            } catch (error) {
-                console.error("Failed to fetch article", error);
-            } finally {
-                setLoading(false);
-            }
-        };
         fetchArticle();
     }, [id]);
 
@@ -42,9 +47,8 @@ const ArticleDetail = () => {
     };
 
     const handleLike = async () => {
-        const token = localStorage.getItem('token');
-        if (!token) {
-            window.location.href = '/login';
+        if (!isLoggedIn()) {
+            navigate('/login');
             return;
         }
         if (isLiking) return;
@@ -69,7 +73,50 @@ const ArticleDetail = () => {
             <div className="w-12 h-12 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin"></div>
         </div>
     );
-    if (!article) return <div className="text-center py-20 text-gray-500 font-medium">文章不存在</div>;
+
+    if (error) return (
+        <div className="max-w-2xl mx-auto py-20">
+            <div className="glass rounded-3xl p-10 text-center border border-red-100">
+                <div className="w-16 h-16 bg-red-50 rounded-full flex items-center justify-center mx-auto mb-5">
+                    <AlertCircle size={32} className="text-red-400" />
+                </div>
+                <h2 className="text-xl font-bold text-gray-800 mb-2">页面加载出错</h2>
+                <p className="text-gray-500 mb-6">{error}</p>
+                <div className="flex justify-center gap-3">
+                    <button
+                        onClick={() => navigate(-1)}
+                        className="px-5 py-2.5 rounded-xl font-medium text-gray-600 bg-gray-100 hover:bg-gray-200 transition-all"
+                    >
+                        返回上页
+                    </button>
+                    <button
+                        onClick={fetchArticle}
+                        className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl font-medium text-white bg-gradient-to-r from-blue-600 to-indigo-600 shadow-md hover:shadow-lg transition-all"
+                    >
+                        <RefreshCw size={16} /> 重新加载
+                    </button>
+                </div>
+            </div>
+        </div>
+    );
+
+    if (!article) return (
+        <div className="max-w-2xl mx-auto py-20">
+            <div className="glass rounded-3xl p-10 text-center border border-gray-100">
+                <div className="w-16 h-16 bg-gray-50 rounded-full flex items-center justify-center mx-auto mb-5">
+                    <AlertCircle size={32} className="text-gray-400" />
+                </div>
+                <h2 className="text-xl font-bold text-gray-800 mb-2">文章不存在</h2>
+                <p className="text-gray-500 mb-6">该文章可能已被删除或链接无效</p>
+                <button
+                    onClick={() => navigate('/')}
+                    className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl font-medium text-white bg-gradient-to-r from-blue-600 to-indigo-600 shadow-md hover:shadow-lg transition-all"
+                >
+                    返回首页
+                </button>
+            </div>
+        </div>
+    );
 
     const isAuthor = canModifyArticle(article);
 

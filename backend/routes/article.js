@@ -1,5 +1,5 @@
 const Router = require('koa-router');
-const { Article, User, Tag, Notification } = require('../models');
+const { Article, User, Tag, Notification, Like } = require('../models');
 const { authMiddleware, optionalAuthMiddleware, ROLES } = require('../utils/rbac');
 const { sanitizeMarkdown } = require('../utils/sanitize');
 const { Op } = require('sequelize');
