@@ -11,23 +11,31 @@ import MyArticles from './pages/MyArticles';
 import SearchResults from './pages/SearchResults';
 
 import Layout from './components/Layout';
+import { HttpUtil } from './utils/HttpUtil';
 
 const ProtectedRoute = ({ children }) => {
-    const token = localStorage.getItem('token');
+    const token = HttpUtil.getToken();
     const location = useLocation();
-    if (!token) {
+
+    if (!token || !HttpUtil.isTokenValid(token)) {
+        if (token) {
+            HttpUtil.clearAuth();
+        }
         return <Navigate to="/login" state={{ from: location }} replace />;
     }
     return children;
 };
 
 const AdminRoute = ({ children }) => {
-    const token = localStorage.getItem('token');
+    const token = HttpUtil.getToken();
     const userJson = localStorage.getItem('user');
     const user = userJson ? JSON.parse(userJson) : null;
     const location = useLocation();
-    
-    if (!token) {
+
+    if (!token || !HttpUtil.isTokenValid(token)) {
+        if (token) {
+            HttpUtil.clearAuth();
+        }
         return <Navigate to="/login" state={{ from: location }} replace />;
     }
     if (user?.role !== 'admin') {
@@ -40,17 +48,20 @@ const AppContent = () => {
     const location = useLocation();
     
     useEffect(() => {
-        const token = localStorage.getItem('token');
+        const token = HttpUtil.getToken();
         const userJson = localStorage.getItem('user');
         if (token && userJson) {
+            if (!HttpUtil.isTokenValid(token)) {
+                HttpUtil.clearAuth();
+                return;
+            }
             try {
                 const user = JSON.parse(userJson);
                 if (user.role === 'admin' && location.pathname === '/admin') {
                     return;
                 }
             } catch (e) {
-                localStorage.removeItem('token');
-                localStorage.removeItem('user');
+                HttpUtil.clearAuth();
             }
         }
     }, [location.pathname]);

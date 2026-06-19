@@ -5,6 +5,46 @@ export class HttpUtil {
         return localStorage.getItem('token');
     }
 
+    static decodeToken(token) {
+        if (!token || typeof token !== 'string') {
+            return null;
+        }
+        try {
+            const parts = token.split('.');
+            if (parts.length !== 3) {
+                return null;
+            }
+            const base64Url = parts[1];
+            const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+            const jsonPayload = decodeURIComponent(atob(base64).split('').map(c =>
+                '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2)
+            ).join(''));
+            return JSON.parse(jsonPayload);
+        } catch (e) {
+            console.warn('Token decode failed:', e);
+            return null;
+        }
+    }
+
+    static isTokenValid(token) {
+        const payload = this.decodeToken(token);
+        if (!payload) {
+            return false;
+        }
+        if (payload.exp && typeof payload.exp === 'number') {
+            const now = Date.now() / 1000;
+            if (payload.exp <= now) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    static clearAuth() {
+        localStorage.removeItem('token');
+        localStorage.removeItem('user');
+    }
+
     static async parseResponse(response) {
         const contentType = response.headers.get('content-type') || '';
         
@@ -48,8 +88,7 @@ export class HttpUtil {
 
             if (response.status === 401) {
                 const hasToken = !!this.getToken();
-                localStorage.removeItem('token');
-                localStorage.removeItem('user');
+                this.clearAuth();
 
                 if (hasToken) {
                     const currentPath = window.location.pathname + window.location.search;

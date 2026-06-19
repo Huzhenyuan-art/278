@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useNavigate, useLocation, useSearchParams } from 'react-router-dom';
 import { LogOut, PlusSquare, Code2, Home, Settings, FileText, Search, X } from 'lucide-react';
+import { HttpUtil } from '../utils/HttpUtil';
 
 const Navbar = () => {
     const navigate = useNavigate();
@@ -20,8 +21,7 @@ const Navbar = () => {
     }, [location.pathname, searchParams]);
 
     const handleLogout = () => {
-        localStorage.removeItem('token');
-        localStorage.removeItem('user');
+        HttpUtil.clearAuth();
         navigate('/login');
     };
 
