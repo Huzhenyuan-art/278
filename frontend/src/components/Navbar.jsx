@@ -1,13 +1,29 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Link, useNavigate, useLocation, useSearchParams } from 'react-router-dom';
-import { LogOut, PlusSquare, Code2, Home, Settings, FileText, Search, X, User, Bell, CheckCheck, MessageCircle, Heart } from 'lucide-react';
+import { LogOut, PlusSquare, Code2, Home, Settings, FileText, Search, X, User, Bell, CheckCheck, MessageCircle, Heart, MessageSquare } from 'lucide-react';
 import { HttpUtil } from '../utils/HttpUtil';
 import { useNotification } from '../hooks/useNotification';
 
 const NotificationItem = ({ notification, onRead, onNavigate }) => {
-    const Icon = notification.type === 'comment' ? MessageCircle : Heart;
-    const iconColor = notification.type === 'comment' ? 'text-blue-500 bg-blue-50' : 'text-red-500 bg-red-50';
-    const actionText = notification.type === 'comment' ? '评论了' : '赞了';
+    let Icon, iconColor, actionText;
+    switch (notification.type) {
+        case 'like':
+            Icon = Heart;
+            iconColor = 'text-red-500 bg-red-50';
+            actionText = '赞了';
+            break;
+        case 'reply':
+            Icon = MessageSquare;
+            iconColor = 'text-emerald-500 bg-emerald-50';
+            actionText = '回复了你的评论';
+            break;
+        case 'comment':
+        default:
+            Icon = MessageCircle;
+            iconColor = 'text-blue-500 bg-blue-50';
+            actionText = '评论了';
+            break;
+    }
 
     const handleClick = () => {
         if (!notification.isRead) {
@@ -27,9 +43,14 @@ const NotificationItem = ({ notification, onRead, onNavigate }) => {
             <div className="flex-1 min-w-0">
                 <p className="text-sm text-gray-800">
                     <span className="font-semibold">{notification.triggerUser?.username || '用户'}</span>
-                    {' '}{actionText}{' '}
-                    <span className="font-medium text-blue-600">「{notification.articleTitle}」</span>
+                    {' '}{actionText}
+                    {notification.type !== 'reply' && <span className="font-medium text-blue-600">「{notification.articleTitle}」</span>}
                 </p>
+                {notification.type === 'reply' && (
+                    <p className="text-xs text-gray-500 mt-0.5">
+                        文章：<span className="text-blue-600">「{notification.articleTitle}」</span>
+                    </p>
+                )}
                 <p className="text-xs text-gray-400 mt-1">
                     {new Date(notification.createdAt).toLocaleString('zh-CN')}
                 </p>

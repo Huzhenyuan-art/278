@@ -1,6 +1,6 @@
 import React, { useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Bell, CheckCheck, MessageCircle, Heart, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Bell, CheckCheck, MessageCircle, Heart, ChevronLeft, ChevronRight, MessageSquare } from 'lucide-react';
 import { useNotification } from '../hooks/useNotification';
 
 const Notifications = () => {
@@ -69,16 +69,30 @@ const Notifications = () => {
                     <div className="flex flex-col items-center justify-center py-20 text-gray-400">
                         <Bell size={48} className="mb-3 opacity-20" />
                         <p className="text-lg font-medium">暂无通知</p>
-                        <p className="text-sm mt-1">当有人评论或点赞你的文章时，你会在这里收到通知</p>
+                        <p className="text-sm mt-1">当有人评论、回复或点赞你的内容时，你会在这里收到通知</p>
                     </div>
                 ) : (
                     <>
                         {notifications.map((n, idx) => {
-                            const Icon = n.type === 'comment' ? MessageCircle : Heart;
-                            const iconBg = n.type === 'comment'
-                                ? 'bg-blue-50 text-blue-500'
-                                : 'bg-red-50 text-red-500';
-                            const action = n.type === 'comment' ? '评论了' : '赞了';
+                            let Icon, iconBg, action;
+                            switch (n.type) {
+                                case 'like':
+                                    Icon = Heart;
+                                    iconBg = 'bg-red-50 text-red-500';
+                                    action = '赞了你的文章';
+                                    break;
+                                case 'reply':
+                                    Icon = MessageSquare;
+                                    iconBg = 'bg-emerald-50 text-emerald-500';
+                                    action = '回复了你的评论';
+                                    break;
+                                case 'comment':
+                                default:
+                                    Icon = MessageCircle;
+                                    iconBg = 'bg-blue-50 text-blue-500';
+                                    action = '评论了你的文章';
+                                    break;
+                            }
 
                             return (
                                 <div
@@ -92,9 +106,19 @@ const Notifications = () => {
                                     <div className="flex-1 min-w-0">
                                         <p className="text-sm text-gray-800 leading-relaxed">
                                             <span className="font-semibold">{n.triggerUser?.username || '用户'}</span>
-                                            {' '}{action}你的文章{' '}
-                                            <span className="font-medium text-blue-600">「{n.articleTitle}」</span>
+                                            {' '}{action}
+                                            {n.type !== 'reply' && (
+                                                <>
+                                                    {' '}
+                                                    <span className="font-medium text-blue-600">「{n.articleTitle}」</span>
+                                                </>
+                                            )}
                                         </p>
+                                        {n.type === 'reply' && (
+                                            <p className="text-xs text-gray-500 mt-1">
+                                                文章：<span className="text-blue-600">「{n.articleTitle}」</span>
+                                            </p>
+                                        )}
                                         <p className="text-xs text-gray-400 mt-1.5">
                                             {new Date(n.createdAt).toLocaleString('zh-CN')}
                                         </p>

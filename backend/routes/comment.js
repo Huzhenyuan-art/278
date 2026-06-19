@@ -257,15 +257,35 @@ router.post('/article/:articleId', authMiddleware, async (ctx) => {
         canEdit: true,
     };
 
-    if (article.authorId !== ctx.state.user.id) {
+    const articleFull = await Article.findByPk(articleId, { attributes: ['id', 'title', 'authorId'] });
+    const articleTitle = articleFull.title;
+    const currentUserId = ctx.state.user.id;
+    const notified = new Set();
+
+    const createNotif = async (type, recipientId) => {
+        if (!recipientId || recipientId === currentUserId || notified.has(recipientId)) return;
+        notified.add(recipientId);
         await Notification.create({
-            type: 'comment',
-            recipientId: article.authorId,
-            triggerUserId: ctx.state.user.id,
+            type,
+            recipientId,
+            triggerUserId: currentUserId,
             articleId,
-            articleTitle: (await Article.findByPk(articleId, { attributes: ['title'] })).title,
+            articleTitle,
             commentId: comment.id,
         });
+    };
+
+    await createNotif('comment', articleFull.authorId);
+
+    if (validatedParentId) {
+        const parent = await Comment.findByPk(validatedParentId, { attributes: ['id', 'userId'] });
+        if (parent && parent.userId) {
+            await createNotif('reply', parent.userId);
+        }
+    }
+
+    if (validatedReplyToUserId) {
+        await createNotif('reply', validatedReplyToUserId);
     }
 
     ctx.body = data;
