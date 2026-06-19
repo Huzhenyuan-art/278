@@ -259,7 +259,7 @@ const AdminDashboard = () => {
                 return aVal > bVal ? 1 : -1;
             }
             return aVal < bVal ? 1 : -1;
-        });
+        }) : [];
 
     const SortIcon = ({ active, order }) => (
         active ? (order === 'asc' ? <ChevronUp size={12} /> : <ChevronDown size={12} />) 

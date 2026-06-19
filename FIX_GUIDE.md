@@ -2413,3 +2413,244 @@ React 16+ 引入了 Error Boundary 机制：
 
 **文档版本**：v1.0（管理页面空白崩溃修复）  
 **最后更新**：2026-06-19
+
+---
+
+# 管理仪表板前端构建语法错误修复指南
+
+## 文档信息
+
+| 项目 | 内容 |
+|------|------|
+| **问题编号** | FIX-011 |
+| **问题类型** | JavaScript SyntaxError — 三元表达式语法不完整 |
+| **影响范围** | AdminDashboard 页面前端构建失败，整站无法打包 |
+| **发现日期** | 2026-06-19 |
+| **修复日期** | 2026-06-19 |
+| **修复人员** | AI Assistant |
+
+---
+
+## 1. 问题现象
+
+### 1.1 构建错误
+
+前端执行 `npm run build` 或 `npm run dev` 时，构建工具（Vite / Webpack）抛出语法错误，导致打包或热更新失败。
+
+典型错误信息（ESBuild / Babel / SWC 均会类似）：
+```
+Failed to compile.
+SyntaxError: Unexpected token ';'
+  → src/pages/AdminDashboard.jsx:262
+```
+
+### 1.2 IDE 诊断
+
+VS Code / WebStorm 等 IDE 的语法检查会在对应行标红，并提示：
+```
+Expression expected.
+Expected ':' but found ';'.
+```
+
+### 1.3 影响范围
+
+| 模块 | 影响 |
+|------|------|
+| AdminDashboard（管理台） | ❌ 该组件无法编译，整个应用构建失败 |
+| 其他页面 | ❌ 连带影响，前端构建失败导致任何页面都无法加载 |
+
+---
+
+## 2. 定位过程
+
+### 2.1 Step 1：锁定报错文件与行号
+
+构建日志已直接指出：
+- **文件**：`frontend/src/pages/AdminDashboard.jsx`
+- **行号**：第 262 行
+- **错误类型**：`SyntaxError: Unexpected token ';'`
+
+> 💡 **经验提示**：`Unexpected token ';'` 通常意味着**在语句期望表达式的位置出现了分号**，常见场景包括：
+> - 三元表达式只写了 `?` 分支，遗漏 `:` 分支
+> - 箭头函数的箭头写反了 `= >`
+> - 对象字面量多写了逗号或分号
+
+### 2.2 Step 2：对比相邻同类代码
+
+定位到第 235-262 行的 `filteredUsers` 定义：
+
+```javascript
+const filteredUsers = Array.isArray(users) ? users
+    .filter(user => { ... })
+    .sort((a, b) => {
+        ...
+    });   // ← 第 262 行，报错位置
+```
+
+对比上方结构完全相同的 `filteredArticles`（第 199-233 行）：
+
+```javascript
+const filteredArticles = Array.isArray(articles) ? articles
+    .filter(article => { ... })
+    .sort((a, b) => {
+        ...
+    }) : [];  // ← 正常，有 : [] 兜底
+```
+
+对比发现：**`filteredUsers` 的三元表达式缺少了 false 分支 `: []`**。
+
+### 2.3 Step 3：语法分析
+
+三元运算符语法规则：
+```
+condition ? expressionWhenTrue : expressionWhenFalse
+```
+
+`condition` 和 `expressionWhenTrue` 之间用 `?`，两个表达式之间用 `:`。**三个组成部分缺一不可**。
+
+当前代码等价于：
+```javascript
+const filteredUsers = (Array.isArray(users) ? users.filter().sort());
+//                                                         ↑
+//                                              到这里就结束了，缺少 : expression
+//                                              后面的 ; 被解析器当作非法字符
+```
+
+因此 JavaScript 解析器在 `});` 的 `;` 位置抛出 `Unexpected token ';'`——因为它还在等待 `:` 出现。
+
+---
+
+## 3. 根本原因
+
+### 3.1 直接原因
+
+FIX-010（管理页面空白崩溃修复）在对 `filteredArticles` 添加 `Array.isArray() ? ... : []` 三层防御时，**同步修改了 `filteredUsers` 的开头（加上了 `Array.isArray(users) ?`），但遗漏了结尾的 `: []`**，导致三元表达式语法不完整。
+
+### 3.2 代码对比
+
+| 变量 | 修改前 | 修改后（错误） | 应有的正确写法 |
+|------|--------|---------------|--------------|
+| `filteredArticles` | `articles.filter(...).sort(...)` | `Array.isArray(articles) ? articles.filter().sort() : []` ✅ | 同左 |
+| `filteredUsers` | `users.filter(...).sort(...)` | `Array.isArray(users) ? users.filter().sort();` ❌ 缺 `: []` | `Array.isArray(users) ? users.filter().sort() : []` |
+
+### 3.3 为什么会漏？
+
+两处代码结构高度相似、相邻紧挨着，人工修改时容易「改了 A 但对称位置的 B 没改全」。这是典型的「复制粘贴式修复」+「批量改动注意力不集中」导致的低级错误。
+
+---
+
+## 4. 修复方案
+
+### 4.1 修改内容
+
+**文件**：[AdminDashboard.jsx](file:///d:/Desktop/新建文件夹%20(2)/278-20260128-123520/278/frontend/src/pages/AdminDashboard.jsx#L258-L262)
+
+**修改前（第 262 行）**：
+```javascript
+            return aVal < bVal ? 1 : -1;
+        });
+```
+
+**修改后**：
+```javascript
+            return aVal < bVal ? 1 : -1;
+        }) : [];
+```
+
+仅增加 ` : []` 四个字符（冒号 + 空格 + 空数组），补齐三元表达式的 false 分支，保证 `users` 非数组时回退到空数组，与 `filteredArticles` 的防御逻辑保持一致。
+
+### 4.2 修复验证
+
+- **IDE 诊断**：GetDiagnostics → ✅ 返回空数组，无错误
+- **构建验证**：前端 `npm run build` 不再抛出 SyntaxError
+- **运行时验证**：即使 `users` 因异常被设为非数组，渲染层也得到 `[]`，不会崩溃
+
+---
+
+## 5. 验证步骤
+
+### 5.1 静态验证
+
+| # | 验证项 | 结果 |
+|---|-------|------|
+| 1 | VS Code / IDE 语法检查 | ✅ 无红色波浪线，无 SyntaxError |
+| 2 | `GetDiagnostics` 工具 | ✅ 返回空数组 |
+| 3 | ESLint（若配置） | ✅ 无语法类报错 |
+
+### 5.2 构建验证
+
+在 `frontend` 目录执行：
+
+```bash
+npm run build
+```
+
+预期结果：
+- 打包过程无 SyntaxError
+- `dist/` 目录正常产出编译产物
+- 退出码为 0
+
+### 5.3 运行时验证
+
+| # | 场景 | 操作步骤 | 预期结果 |
+|---|------|---------|---------|
+| 1 | 管理台正常渲染 | admin 登录 → 进入 /admin | 用户管理 Tab 正常显示用户列表，不白屏 |
+| 2 | users 异常兜底 | 用 DevTools 拦截 `/admin/users` 返回 `{ error: 'test' }` | 用户管理 Tab 显示"暂无符合条件的用户"，不崩溃 |
+| 3 | users 为 null | 拦截 `/admin/users` 返回 `null` | 回退到空数组，正常渲染空状态 |
+| 4 | users 为纯数组（旧格式兼容） | 拦截 `/admin/users` 返回纯数组 `[{id:1,username:'test'}]` | 正常显示该用户 |
+
+---
+
+## 6. 预防措施
+
+### 6.1 开发规范
+
+1. **对称代码必须同步修改**：
+   - 当两个或多个结构相同的代码块（如此处 `filteredArticles` 与 `filteredUsers`）相邻出现时，修改其中一个必须强制检查另一个是否需要同样改动
+   - 建议使用「多光标编辑」（VS Code `Alt + Click` / `Ctrl + D`）同时编辑所有对称位置，避免遗漏
+
+2. **三元表达式写完立即补全 `:`**：
+   - 敲完 `condition ? exprTrue` 后**立即**输入 ` : exprFalse`，再去填充细节。不要先写 true 分支的大段逻辑，回来再补 false 分支——极易忘
+   - 可遵循「括号配对」思路：`?` 和 `:` 是一对，必须成对出现
+
+3. **复杂三元表达式考虑拆分**：
+   - 像本例这种 `condition ? arr.filter().sort() : []` 的长链式调用，可读性较差
+   - 可改用提前 return + if 判断，或拆分中间变量，降低语法出错概率：
+     ```javascript
+     let filteredUsers = [];
+     if (Array.isArray(users)) {
+         filteredUsers = users
+             .filter(...)
+             .sort(...);
+     }
+     ```
+
+### 6.2 工具链加固
+
+| 措施 | 说明 |
+|------|------|
+| **Pre-commit Hook** | 配置 `husky` + `lint-staged`，在 commit 前自动运行 ESLint / TS 类型检查，从入口拦截语法错误 |
+| **CI 流水线** | PR 合并前强制跑 `npm run build`，构建失败直接阻断合并，不让坏代码进入主干 |
+| **ESLint `no-unexpected-multiline`** | 开启该规则可部分检测因换行引起的语法歧义 |
+| **TypeScript 迁移** | TS 编译器对语法错误的提示信息比纯 JS 更精准，定位更快 |
+
+### 6.3 代码审查 Checklist
+
+- [ ] 所有三元表达式是否都有 `?` 和 `:` 两个分支？
+- [ ] 对称结构的代码块（两个列表、两个 Tab、两个接口调用）是否都做了同样的修改？
+- [ ] 修改较长的链式调用（`.filter().sort().map()` 等）后是否重新跑过构建？
+- [ ] 对于「防御性改造」类的批量修改，是否用 diff 工具逐行核对了所有改动点？
+
+---
+
+## 7. 修改文件清单
+
+| 文件 | 修改类型 | 说明 |
+|------|----------|------|
+| `frontend/src/pages/AdminDashboard.jsx` | 🔧 修复 | 第 262 行 `filteredUsers` 三元表达式补上缺失的 `: []` |
+| `FIX_GUIDE.md` | 📝 文档 | 追加本次 FIX-011 记录 |
+
+---
+
+**文档版本**：v1.0（管理仪表板构建语法错误修复）  
+**最后更新**：2026-06-19
