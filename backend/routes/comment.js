@@ -1,5 +1,5 @@
 const Router = require('koa-router');
-const { Comment, User, Article } = require('../models');
+const { Comment, User, Article, Notification } = require('../models');
 const { authMiddleware, optionalAuthMiddleware } = require('../utils/rbac');
 const { sanitizeHtml } = require('../utils/sanitize');
 const { Op } = require('sequelize');
@@ -256,6 +256,17 @@ router.post('/article/:articleId', authMiddleware, async (ctx) => {
         canDelete: true,
         canEdit: true,
     };
+
+    if (article.authorId !== ctx.state.user.id) {
+        await Notification.create({
+            type: 'comment',
+            recipientId: article.authorId,
+            triggerUserId: ctx.state.user.id,
+            articleId,
+            articleTitle: (await Article.findByPk(articleId, { attributes: ['title'] })).title,
+            commentId: comment.id,
+        });
+    }
 
     ctx.body = data;
 });

@@ -10,6 +10,7 @@ import AdminDashboard from './pages/AdminDashboard';
 import MyArticles from './pages/MyArticles';
 import SearchResults from './pages/SearchResults';
 import Profile from './pages/Profile';
+import Notifications from './pages/Notifications';
 
 import Layout from './components/Layout';
 import { HttpUtil } from './utils/HttpUtil';
@@ -132,6 +133,7 @@ const AppContent = () => {
                 <Route path="article/create" element={<ArticleCreate />} /> 
                 <Route path="article/edit/:id" element={<ArticleEdit />} />
                 <Route path="article/:id" element={<ArticleDetail />} />
+                <Route path="notifications" element={<Notifications />} />
                 <Route path="admin" element={
                     <AdminRoute>
                         <AdminDashboard />

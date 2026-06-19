@@ -1,5 +1,5 @@
 const Router = require('koa-router');
-const { Article, User, Like, Tag, ArticleTag } = require('../models');
+const { Article, User, Like, Tag, ArticleTag, Notification } = require('../models');
 const { authMiddleware, optionalAuthMiddleware, ROLES } = require('../utils/rbac');
 const { sanitizeMarkdown } = require('../utils/sanitize');
 const { Op } = require('sequelize');
@@ -165,9 +165,21 @@ router.post('/:id/like', authMiddleware, async (ctx) => {
     const existingLike = await Like.findOne({ where: { userId, articleId } });
     if (existingLike) {
         await existingLike.destroy();
+        await Notification.destroy({
+            where: { type: 'like', recipientId: article.authorId, triggerUserId: userId, articleId },
+        });
         ctx.body = { liked: false, likeCount: await Like.count({ where: { articleId } }) };
     } else {
         await Like.create({ userId, articleId });
+        if (article.authorId !== userId) {
+            await Notification.create({
+                type: 'like',
+                recipientId: article.authorId,
+                triggerUserId: userId,
+                articleId,
+                articleTitle: article.title,
+            });
+        }
         ctx.body = { liked: true, likeCount: await Like.count({ where: { articleId } }) };
     }
 });

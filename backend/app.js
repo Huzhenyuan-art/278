@@ -37,6 +37,7 @@ const commentRoutes = require('./routes/comment');
 const adminRoutes = require('./routes/admin');
 const profileRoutes = require('./routes/profile');
 const uploadRoutes = require('./routes/upload');
+const notificationRoutes = require('./routes/notification');
 
 // Initialize DB
 initDb();
@@ -49,6 +50,7 @@ app.use(commentRoutes.routes()).use(commentRoutes.allowedMethods());
 app.use(adminRoutes.routes()).use(adminRoutes.allowedMethods());
 app.use(profileRoutes.routes()).use(profileRoutes.allowedMethods());
 app.use(uploadRoutes.routes()).use(uploadRoutes.allowedMethods());
+app.use(notificationRoutes.routes()).use(notificationRoutes.allowedMethods());
 
 app.use(async ctx => {
     if (ctx.path === '/') {

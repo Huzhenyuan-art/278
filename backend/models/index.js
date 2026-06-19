@@ -5,6 +5,7 @@ const Like = require('./like');
 const Comment = require('./comment');
 const Tag = require('./tag');
 const ArticleTag = require('./articleTag');
+const Notification = require('./notification');
 
 // Define Associations
 User.hasMany(Article, { foreignKey: 'authorId' });
@@ -34,6 +35,13 @@ ArticleTag.belongsTo(Article, { foreignKey: 'articleId' });
 ArticleTag.belongsTo(Tag, { foreignKey: 'tagId' });
 Article.hasMany(ArticleTag, { foreignKey: 'articleId' });
 Tag.hasMany(ArticleTag, { foreignKey: 'tagId' });
+
+User.hasMany(Notification, { foreignKey: 'recipientId', as: 'receivedNotifications' });
+User.hasMany(Notification, { foreignKey: 'triggerUserId', as: 'triggeredNotifications' });
+Notification.belongsTo(User, { foreignKey: 'recipientId', as: 'recipient' });
+Notification.belongsTo(User, { foreignKey: 'triggerUserId', as: 'triggerUser' });
+Notification.belongsTo(Article, { foreignKey: 'articleId' });
+Notification.belongsTo(Comment, { foreignKey: 'commentId' });
 
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -70,5 +78,6 @@ module.exports = {
     Comment,
     Tag,
     ArticleTag,
+    Notification,
     initDb
 };
