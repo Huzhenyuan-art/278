@@ -1,12 +1,17 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import { HttpUtil } from '../utils/HttpUtil';
 import { formatDate } from '../utils/dateUtils';
-import { Clock, User as UserIcon, ArrowRight, MessageSquare, Sparkles, TrendingUp, Heart, Tag, X, ArrowDown, ArrowUp } from 'lucide-react';
+import { Clock, User as UserIcon, ArrowRight, MessageSquare, Sparkles, TrendingUp, Heart, Tag, X, ArrowDown, ArrowUp, Loader2 } from 'lucide-react';
 
 const Dashboard = () => {
     const [articles, setArticles] = useState([]);
     const [loading, setLoading] = useState(true);
+    const [loadingMore, setLoadingMore] = useState(false);
+    const [page, setPage] = useState(1);
+    const [total, setTotal] = useState(0);
+    const [totalPages, setTotalPages] = useState(1);
+    const [pageSize] = useState(10);
     const [likingIds, setLikingIds] = useState(new Set());
     const [tags, setTags] = useState([]);
     const [selectedTagId, setSelectedTagId] = useState(null);
@@ -27,24 +32,49 @@ const Dashboard = () => {
         fetchTags();
     }, []);
 
-    useEffect(() => {
-        const fetchArticles = async () => {
+    const fetchArticles = useCallback(async (pageNum = 1, isLoadMore = false) => {
+        if (isLoadMore) {
+            setLoadingMore(true);
+        } else {
             setLoading(true);
-            try {
-                const params = new URLSearchParams();
-                if (selectedTagId) params.append('tagId', selectedTagId);
-                if (sortOrder) params.append('sort', sortOrder);
-                const url = `/article${params.toString() ? `?${params.toString()}` : ''}`;
-                const data = await HttpUtil.get(url);
-                setArticles(data);
-            } catch (error) {
-                console.error("Failed to fetch articles", error);
-            } finally {
+        }
+        try {
+            const params = new URLSearchParams();
+            params.append('page', pageNum);
+            params.append('pageSize', pageSize);
+            if (selectedTagId) params.append('tagId', selectedTagId);
+            if (sortOrder) params.append('sort', sortOrder);
+            const url = `/article?${params.toString()}`;
+            const data = await HttpUtil.get(url);
+            const { results, total: totalCount, totalPages: tp } = data;
+            setTotal(totalCount);
+            setTotalPages(tp);
+            setPage(pageNum);
+            if (isLoadMore) {
+                setArticles(prev => [...prev, ...results]);
+            } else {
+                setArticles(results);
+            }
+        } catch (error) {
+            console.error("Failed to fetch articles", error);
+        } finally {
+            if (isLoadMore) {
+                setLoadingMore(false);
+            } else {
                 setLoading(false);
             }
-        };
-        fetchArticles();
-    }, [selectedTagId, sortOrder]);
+        }
+    }, [selectedTagId, sortOrder, pageSize]);
+
+    useEffect(() => {
+        fetchArticles(1, false);
+    }, [fetchArticles]);
+
+    const handleLoadMore = () => {
+        if (page < totalPages && !loadingMore) {
+            fetchArticles(page + 1, true);
+        }
+    };
 
     const handleTagClick = (tagId) => {
         setSelectedTagId(prev => prev === tagId ? null : tagId);
@@ -198,7 +228,7 @@ const Dashboard = () => {
                             )}
                         </button>
                         <span className="text-xs font-medium text-gray-500 bg-white/50 px-2.5 py-0.5 rounded-full border border-gray-100">
-                            共 {articles.length} 篇文章
+                            显示 {articles.length} / {total} 篇文章
                         </span>
                     </div>
                 </div>
@@ -281,6 +311,28 @@ const Dashboard = () => {
                         </Link>
                     ))}
                 </div>
+
+                {articles.length > 0 && page < totalPages && (
+                    <div className="flex justify-center mt-10 mb-4">
+                        <button
+                            onClick={handleLoadMore}
+                            disabled={loadingMore}
+                            className="inline-flex items-center gap-2 px-8 py-3 rounded-xl text-sm font-bold text-white bg-gradient-to-r from-blue-600 to-indigo-600 hover:shadow-lg hover:shadow-blue-500/30 hover:-translate-y-0.5 transition-all disabled:opacity-60 disabled:cursor-not-allowed disabled:translate-y-0 disabled:shadow-none"
+                        >
+                            {loadingMore ? (
+                                <>
+                                    <Loader2 size={16} className="animate-spin" />
+                                    加载中...
+                                </>
+                            ) : (
+                                <>
+                                    加载更多
+                                    <ArrowDown size={16} />
+                                </>
+                            )}
+                        </button>
+                    </div>
+                )}
 
                 {articles.length === 0 && (
                     <div className="text-center py-20 glass rounded-3xl border border-dashed border-gray-300/50">

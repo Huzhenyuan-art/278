@@ -72,10 +72,14 @@ const attachTagsToArticles = async (articles) => {
     });
 };
 
-// List all articles
+// List all articles with pagination
 router.get('/', optionalAuthMiddleware, async (ctx) => {
-    const { tagId, tagName, sort } = ctx.query;
+    const { tagId, tagName, sort, page = 1, pageSize = 10 } = ctx.query;
     const userId = ctx.state.user?.id;
+
+    const currentPage = Math.max(1, parseInt(page) || 1);
+    const limit = Math.min(50, Math.max(1, parseInt(pageSize) || 10));
+    const offset = (currentPage - 1) * limit;
     
     let where = {};
     if (userId) {
@@ -105,18 +109,28 @@ router.get('/', optionalAuthMiddleware, async (ctx) => {
 
     const sortOrder = sort === 'asc' ? 'ASC' : 'DESC';
 
-    const articles = await Article.findAll({
+    const { count, rows: articles } = await Article.findAndCountAll({
         where,
         include,
         order: [['createdAt', sortOrder]],
-        distinct: true
+        distinct: true,
+        limit,
+        offset
     });
 
     const articlesWithTags = await attachTagsToArticles(articles);
     const plainArticles = articlesWithTags.map(a => Article.build(a, { isNewRecord: false }));
     const likedArticles = await attachLikeInfo(plainArticles, userId);
 
-    ctx.body = likedArticles.map((a, i) => ({ ...a, tags: articlesWithTags[i].tags }));
+    const results = likedArticles.map((a, i) => ({ ...a, tags: articlesWithTags[i].tags }));
+
+    ctx.body = {
+        total: count,
+        page: currentPage,
+        pageSize: limit,
+        totalPages: Math.ceil(count / limit),
+        results
+    };
 });
 
 // Get single article
@@ -158,10 +172,14 @@ router.post('/:id/like', authMiddleware, async (ctx) => {
     }
 });
 
-// Get current user's articles (with status filter)
+// Get current user's articles (with status filter) - with pagination
 router.get('/mine/list', authMiddleware, async (ctx) => {
-    const { status, sort } = ctx.query;
+    const { status, sort, page = 1, pageSize = 10 } = ctx.query;
     const userId = ctx.state.user.id;
+
+    const currentPage = Math.max(1, parseInt(page) || 1);
+    const limit = Math.min(50, Math.max(1, parseInt(pageSize) || 10));
+    const offset = (currentPage - 1) * limit;
 
     let where = { authorId: userId };
     if (status && isValidStatus(status)) {
@@ -170,21 +188,31 @@ router.get('/mine/list', authMiddleware, async (ctx) => {
 
     const sortOrder = sort === 'asc' ? 'ASC' : 'DESC';
 
-    const articles = await Article.findAll({
+    const { count, rows: articles } = await Article.findAndCountAll({
         where,
         include: [
             { model: User, attributes: ['username'] },
             { model: Tag, through: { attributes: [] }, attributes: ['id', 'name', 'color'] }
         ],
         order: [['createdAt', sortOrder]],
-        distinct: true
+        distinct: true,
+        limit,
+        offset
     });
 
     const articlesWithLike = await attachLikeInfo(articles, userId);
-    ctx.body = articlesWithLike.map(a => ({
+    const results = articlesWithLike.map(a => ({
         ...a,
         tags: a.tags ? a.tags.map(t => t.toJSON ? t.toJSON() : t) : []
     }));
+
+    ctx.body = {
+        total: count,
+        page: currentPage,
+        pageSize: limit,
+        totalPages: Math.ceil(count / limit),
+        results
+    };
 });
 
 // Toggle article status (draft <-> published)

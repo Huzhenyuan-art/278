@@ -1,10 +1,10 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { HttpUtil } from '../utils/HttpUtil';
 import { formatDate, getDateTimestamp } from '../utils/dateUtils';
 import { 
     Shield, Edit3, Eye, Clock, User as UserIcon, Trash2, Search, Filter, ArrowUpDown, 
-    FileText, AlertTriangle, Users, Settings, ChevronUp, ChevronDown
+    FileText, AlertTriangle, Users, Settings, ChevronUp, ChevronDown, ChevronLeft, ChevronRight, Loader2
 } from 'lucide-react';
 
 const AdminDashboard = () => {
@@ -13,6 +13,10 @@ const AdminDashboard = () => {
     
     const [articles, setArticles] = useState([]);
     const [articlesLoading, setArticlesLoading] = useState(true);
+    const [articlePage, setArticlePage] = useState(1);
+    const [articleTotal, setArticleTotal] = useState(0);
+    const [articleTotalPages, setArticleTotalPages] = useState(1);
+    const [articlePageSize] = useState(10);
     const [articleSearchTerm, setArticleSearchTerm] = useState('');
     const [statusFilter, setStatusFilter] = useState('all');
     const [articleSortBy, setArticleSortBy] = useState('createdAt');
@@ -33,11 +37,11 @@ const AdminDashboard = () => {
     useEffect(() => {
         fetchStats();
         if (activeTab === 'articles') {
-            fetchArticles();
+            fetchArticles(1);
         } else {
             fetchUsers();
         }
-    }, [activeTab]);
+    }, [activeTab, fetchArticles]);
 
     const fetchStats = async () => {
         try {
@@ -50,18 +54,28 @@ const AdminDashboard = () => {
         }
     };
 
-    const fetchArticles = async () => {
+    const fetchArticles = useCallback(async (pageNum = 1) => {
         setArticlesLoading(true);
         try {
-            const data = await HttpUtil.get('/admin/articles');
-            setArticles(data);
+            const params = new URLSearchParams();
+            params.append('page', pageNum);
+            params.append('pageSize', articlePageSize);
+            if (statusFilter !== 'all') params.append('status', statusFilter);
+            params.append('sort', articleSortOrder);
+            const url = `/admin/articles?${params.toString()}`;
+            const data = await HttpUtil.get(url);
+            const { results, total, totalPages } = data;
+            setArticles(results);
+            setArticleTotal(total);
+            setArticleTotalPages(totalPages);
+            setArticlePage(pageNum);
         } catch (error) {
             console.error("Failed to fetch articles", error);
             alert('获取文章列表失败: ' + error.message);
         } finally {
             setArticlesLoading(false);
         }
-    };
+    }, [articlePageSize, statusFilter, articleSortOrder]);
 
     const fetchUsers = async () => {
         setUsersLoading(true);
@@ -83,12 +97,18 @@ const AdminDashboard = () => {
         setDeletingId(articleId);
         try {
             await HttpUtil.delete(`/admin/articles/${articleId}`);
-            setArticles(prev => prev.filter(a => a.id !== articleId));
+            const newArticles = articles.filter(a => a.id !== articleId);
             if (stats) {
                 setStats(prev => ({
                     ...prev,
                     totalArticles: prev.totalArticles - 1
                 }));
+            }
+            if (newArticles.length === 0 && articlePage > 1) {
+                fetchArticles(articlePage - 1);
+            } else {
+                setArticles(newArticles);
+                setArticleTotal(prev => prev - 1);
             }
         } catch (error) {
             console.error("Failed to delete article", error);
@@ -145,8 +165,7 @@ const AdminDashboard = () => {
         .filter(article => {
             const matchesSearch = article.title.toLowerCase().includes(articleSearchTerm.toLowerCase()) ||
                                  article.user?.username?.toLowerCase().includes(articleSearchTerm.toLowerCase());
-            const matchesStatus = statusFilter === 'all' || article.status === statusFilter;
-            return matchesSearch && matchesStatus;
+            return matchesSearch;
         })
         .sort((a, b) => {
             let aVal, bVal;
@@ -564,10 +583,53 @@ const AdminDashboard = () => {
                                         </tbody>
                                     </table>
                                 </div>
-                                <div className="px-6 py-4 bg-gray-50/50 border-t border-gray-100/60 flex items-center justify-between">
+                                <div className="px-6 py-4 bg-gray-50/50 border-t border-gray-100/60 flex flex-col sm:flex-row items-center justify-between gap-3">
                                     <p className="text-xs font-medium text-gray-500">
-                                        显示 <span className="text-purple-600 font-bold">{filteredArticles.length}</span> / <span className="text-gray-700 font-bold">{articles.length}</span> 篇文章
+                                        第 <span className="text-purple-600 font-bold">{articlePage}</span> / {articleTotalPages} 页，共 <span className="text-gray-700 font-bold">{articleTotal}</span> 篇文章
                                     </p>
+                                    <div className="flex items-center gap-1">
+                                        <button
+                                            onClick={() => fetchArticles(1)}
+                                            disabled={articlePage <= 1 || articlesLoading}
+                                            className="p-2 rounded-lg text-gray-500 hover:bg-white hover:text-purple-600 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+                                            title="首页"
+                                        >
+                                            <ChevronLeft size={16} />
+                                            <ChevronLeft size={16} className="-ml-2" />
+                                        </button>
+                                        <button
+                                            onClick={() => fetchArticles(articlePage - 1)}
+                                            disabled={articlePage <= 1 || articlesLoading}
+                                            className="p-2 rounded-lg text-gray-500 hover:bg-white hover:text-purple-600 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+                                            title="上一页"
+                                        >
+                                            <ChevronLeft size={16} />
+                                        </button>
+                                        <div className="flex items-center gap-1 mx-2">
+                                            {articlesLoading ? (
+                                                <Loader2 size={16} className="animate-spin text-purple-600" />
+                                            ) : (
+                                                <span className="text-sm font-bold text-purple-600 min-w-[30px] text-center">{articlePage}</span>
+                                            )}
+                                        </div>
+                                        <button
+                                            onClick={() => fetchArticles(articlePage + 1)}
+                                            disabled={articlePage >= articleTotalPages || articlesLoading}
+                                            className="p-2 rounded-lg text-gray-500 hover:bg-white hover:text-purple-600 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+                                            title="下一页"
+                                        >
+                                            <ChevronRight size={16} />
+                                        </button>
+                                        <button
+                                            onClick={() => fetchArticles(articleTotalPages)}
+                                            disabled={articlePage >= articleTotalPages || articlesLoading}
+                                            className="p-2 rounded-lg text-gray-500 hover:bg-white hover:text-purple-600 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+                                            title="末页"
+                                        >
+                                            <ChevronRight size={16} className="-mr-2" />
+                                            <ChevronRight size={16} />
+                                        </button>
+                                    </div>
                                 </div>
                             </>
                         )}

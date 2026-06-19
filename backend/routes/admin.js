@@ -136,8 +136,12 @@ router.patch('/users/:id/role', adminMiddleware, async (ctx) => {
 
 router.get('/articles', adminMiddleware, async (ctx) => {
     try {
-        const { status, sort } = ctx.query;
+        const { status, sort, page = 1, pageSize = 10 } = ctx.query;
         const userId = ctx.state.user.id;
+
+        const currentPage = Math.max(1, parseInt(page) || 1);
+        const limit = Math.min(50, Math.max(1, parseInt(pageSize) || 10));
+        const offset = (currentPage - 1) * limit;
 
         let where = {};
         if (status && ['draft', 'published'].includes(status)) {
@@ -146,14 +150,16 @@ router.get('/articles', adminMiddleware, async (ctx) => {
 
         const sortOrder = sort === 'asc' ? 'ASC' : 'DESC';
 
-        const articles = await Article.findAll({
+        const { count, rows: articles } = await Article.findAndCountAll({
             where,
             include: [
                 { model: User, attributes: ['id', 'username'] },
                 { model: Tag, through: { attributes: [] }, attributes: ['id', 'name', 'color'] }
             ],
             order: [['createdAt', sortOrder]],
-            distinct: true
+            distinct: true,
+            limit,
+            offset
         });
 
         const articlesWithTags = await attachTagsToArticles(articles);
@@ -186,12 +192,20 @@ router.get('/articles', adminMiddleware, async (ctx) => {
             commentCounts.map(c => [c.articleId, parseInt(c.get('count'))])
         );
 
-        ctx.body = articlesWithTags.map(article => ({
+        const results = articlesWithTags.map(article => ({
             ...article,
             likeCount: likeCountMap[article.id] || 0,
             liked: !!likedMap[article.id],
             commentCount: commentCountMap[article.id] || 0
         }));
+
+        ctx.body = {
+            total: count,
+            page: currentPage,
+            pageSize: limit,
+            totalPages: Math.ceil(count / limit),
+            results
+        };
     } catch (err) {
         ctx.status = err.status || 500;
         ctx.body = { error: err.message };

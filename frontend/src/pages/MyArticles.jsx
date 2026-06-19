@@ -5,7 +5,7 @@ import { formatDate } from '../utils/dateUtils';
 import {
     FileText, Clock, Edit3, Trash2, Eye, EyeOff,
     Sparkles, ChevronRight, AlertCircle, Loader2,
-    BookOpen, Archive, RefreshCw
+    BookOpen, Archive, RefreshCw, ArrowDown
 } from 'lucide-react';
 
 const TABS = [
@@ -19,29 +19,58 @@ const MyArticles = () => {
     const [activeTab, setActiveTab] = useState('all');
     const [articles, setArticles] = useState([]);
     const [loading, setLoading] = useState(true);
+    const [loadingMore, setLoadingMore] = useState(false);
+    const [page, setPage] = useState(1);
+    const [total, setTotal] = useState(0);
+    const [totalPages, setTotalPages] = useState(1);
+    const [pageSize] = useState(10);
     const [actioningIds, setActioningIds] = useState(new Set());
     const [deletingId, setDeletingId] = useState(null);
 
-    const fetchArticles = useCallback(async () => {
-        setLoading(true);
+    const fetchArticles = useCallback(async (pageNum = 1, isLoadMore = false) => {
+        if (isLoadMore) {
+            setLoadingMore(true);
+        } else {
+            setLoading(true);
+        }
         try {
             const tab = TABS.find(t => t.key === activeTab);
             const params = new URLSearchParams();
+            params.append('page', pageNum);
+            params.append('pageSize', pageSize);
             if (tab?.status) params.append('status', tab.status);
-            const url = `/article/mine/list${params.toString() ? `?${params.toString()}` : ''}`;
+            const url = `/article/mine/list?${params.toString()}`;
             const data = await HttpUtil.get(url);
-            setArticles(data);
+            const { results, total: totalCount, totalPages: tp } = data;
+            setTotal(totalCount);
+            setTotalPages(tp);
+            setPage(pageNum);
+            if (isLoadMore) {
+                setArticles(prev => [...prev, ...results]);
+            } else {
+                setArticles(results);
+            }
         } catch (error) {
             console.error('Failed to fetch my articles', error);
             alert('获取文章列表失败：' + error.message);
         } finally {
-            setLoading(false);
+            if (isLoadMore) {
+                setLoadingMore(false);
+            } else {
+                setLoading(false);
+            }
         }
-    }, [activeTab]);
+    }, [activeTab, pageSize]);
 
     useEffect(() => {
-        fetchArticles();
+        fetchArticles(1, false);
     }, [fetchArticles]);
+
+    const handleLoadMore = () => {
+        if (page < totalPages && !loadingMore) {
+            fetchArticles(page + 1, true);
+        }
+    };
 
     const truncateContent = (content, maxLength = 80) => {
         if (!content) return '';
@@ -355,6 +384,28 @@ const MyArticles = () => {
                             </div>
                         );
                     })}
+                </div>
+            )}
+
+            {filteredArticles.length > 0 && page < totalPages && (
+                <div className="flex justify-center mt-8">
+                    <button
+                        onClick={handleLoadMore}
+                        disabled={loadingMore}
+                        className="inline-flex items-center gap-2 px-8 py-3 rounded-xl text-sm font-bold text-white bg-gradient-to-r from-blue-600 to-indigo-600 hover:shadow-lg hover:shadow-blue-500/30 hover:-translate-y-0.5 transition-all disabled:opacity-60 disabled:cursor-not-allowed disabled:translate-y-0 disabled:shadow-none"
+                    >
+                        {loadingMore ? (
+                            <>
+                                <Loader2 size={16} className="animate-spin" />
+                                加载中...
+                            </>
+                        ) : (
+                            <>
+                                加载更多
+                                <ArrowDown size={16} />
+                            </>
+                        )}
+                    </button>
                 </div>
             )}
         </div>
