@@ -2,7 +2,7 @@ import React, { useEffect, useState, useMemo } from 'react';
 import { Link, useSearchParams, useNavigate } from 'react-router-dom';
 import { HttpUtil } from '../utils/HttpUtil';
 import { formatDate } from '../utils/dateUtils';
-import { highlightText, getFullImageUrl } from '../utils/common';
+import { highlightText } from '../utils/common';
 import { Search, Clock, User as UserIcon, ArrowLeft, FileText, AlertCircle, Sparkles, ChevronLeft, ChevronRight } from 'lucide-react';
 
 const SearchResults = () => {
@@ -17,6 +17,22 @@ const SearchResults = () => {
     const [page, setPage] = useState(1);
     const [totalPages, setTotalPages] = useState(0);
     const [pageSize, setPageSize] = useState(10);
+
+    const renderHighlightedText = (text, keyword) => {
+        const segments = highlightText(text, keyword);
+        return segments.map((segment, index) => (
+            segment.isMatch ? (
+                <mark
+                    key={index}
+                    className="bg-yellow-200/80 text-yellow-900 px-0.5 py-0.5 rounded font-medium"
+                >
+                    {segment.text}
+                </mark>
+            ) : (
+                <span key={index}>{segment.text}</span>
+            )
+        ));
+    };
 
     useEffect(() => {
         if (!keyword.trim()) {
@@ -266,7 +282,7 @@ const SearchResults = () => {
                             </div>
 
                             <h3 className="text-lg font-bold text-gray-800 mb-2 group-hover:text-blue-600 transition-colors leading-snug">
-                                {highlightText(article.title, keyword)}
+                                {renderHighlightedText(article.title, keyword)}
                             </h3>
 
                             {article.tags && article.tags.length > 0 && (
@@ -289,7 +305,7 @@ const SearchResults = () => {
                             )}
 
                             <p className="text-gray-600 text-sm leading-relaxed line-clamp-3">
-                                {highlightText(article.snippet, keyword)}
+                                {renderHighlightedText(article.snippet, keyword)}
                             </p>
                         </Link>
                     ))}

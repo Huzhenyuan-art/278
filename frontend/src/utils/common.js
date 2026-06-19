@@ -95,34 +95,25 @@ export const escapeRegExp = (string) => {
 };
 
 /**
- * 高亮文本中的关键词
+ * 高亮文本中的关键词 - 返回结构化分段数据
+ * 将文本按关键词分割为多个分段，标记每个分段是否为匹配项
+ * 调用方（React 组件）负责将分段数据渲染为 JSX 元素
  * @param {string} text - 原始文本
  * @param {string} keyword - 需要高亮的关键词
- * @param {React.ComponentType} [HighlightComponent] - 自定义高亮组件
- * @returns {Array<React.ReactNode>|string} 高亮后的内容
+ * @returns {Array<{text: string, isMatch: boolean}>} 分段数组
  */
-export const highlightText = (text, keyword, HighlightComponent = null) => {
-    if (!text || !keyword) return text;
+export const highlightText = (text, keyword) => {
+    if (!text || !keyword) return [{ text: text || '', isMatch: false }];
 
     const regex = new RegExp(`(${escapeRegExp(keyword)})`, 'gi');
     const parts = text.split(regex);
 
-    return parts.map((part, index) => {
-        if (regex.test(part)) {
-            if (HighlightComponent) {
-                return <HighlightComponent key={index}>{part}</HighlightComponent>;
-            }
-            return (
-                <mark
-                    key={index}
-                    className="bg-yellow-200/80 text-yellow-900 px-0.5 py-0.5 rounded font-medium"
-                >
-                    {part}
-                </mark>
-            );
-        }
-        return <span key={index}>{part}</span>;
-    });
+    return parts
+        .filter(part => part.length > 0)
+        .map((part) => ({
+            text: part,
+            isMatch: regex.test(part)
+        }));
 };
 
 /**
