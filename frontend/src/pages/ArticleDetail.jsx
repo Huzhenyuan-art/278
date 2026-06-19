@@ -70,7 +70,7 @@ const ArticleDetail = () => {
     );
     if (!article) return <div className="text-center py-20 text-gray-500 font-medium">文章不存在</div>;
 
-    const isAuthor = user && user.id === article.authorId;
+    const isAuthor = user && (user.id === article.authorId || user.role === 'admin');
 
     return (
         <div className="max-w-4xl mx-auto space-y-6">

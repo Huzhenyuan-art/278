@@ -104,12 +104,16 @@ router.get('/', optionalAuthMiddleware, async (ctx) => {
     
     let where = {};
     if (userId) {
-        where = {
-            [Op.or]: [
-                { status: 'published' },
-                { status: 'draft', authorId: userId }
-            ]
-        };
+        if (ctx.state.user?.role === 'admin') {
+            where = {};
+        } else {
+            where = {
+                [Op.or]: [
+                    { status: 'published' },
+                    { status: 'draft', authorId: userId }
+                ]
+            };
+        }
     } else {
         where = { status: 'published' };
     }
@@ -156,7 +160,7 @@ router.get('/:id', optionalAuthMiddleware, async (ctx) => {
         ctx.throw(404, '文章未找到');
     }
     const userId = ctx.state.user?.id;
-    if (article.status === 'draft' && article.authorId !== userId) {
+    if (article.status === 'draft' && article.authorId !== userId && ctx.state.user?.role !== 'admin') {
         ctx.throw(404, '文章未找到');
     }
     const [result] = await attachLikeInfo([article], userId);
@@ -218,8 +222,8 @@ router.patch('/:id/status', authMiddleware, async (ctx) => {
     if (!article) {
         ctx.throw(404, '文章未找到');
     }
-    if (article.authorId !== ctx.state.user.id) {
-        ctx.throw(403, '无权修改此文章的状态');
+    if (article.authorId !== ctx.state.user.id && ctx.state.user.role !== 'admin') {
+        ctx.throw(403, '权限不足，仅作者或管理员可修改此文的状态');
     }
 
     const { status } = ctx.request.body;
@@ -291,8 +295,8 @@ router.put('/:id', authMiddleware, async (ctx) => {
     if (!article) {
         ctx.throw(404, '文章未找到');
     }
-    if (article.authorId !== ctx.state.user.id) {
-        ctx.throw(403, '权限不足，仅作者可编辑此文');
+    if (article.authorId !== ctx.state.user.id && ctx.state.user.role !== 'admin') {
+        ctx.throw(403, '权限不足，仅作者或管理员可编辑此文');
     }
     const { title, content, status, tagIds } = ctx.request.body;
     const updateData = {};
@@ -338,8 +342,8 @@ router.delete('/:id', authMiddleware, async (ctx) => {
     if (!article) {
         ctx.throw(404, '文章未找到');
     }
-    if (article.authorId !== ctx.state.user.id) {
-        ctx.throw(403, '权限不足，仅作者可删除此文');
+    if (article.authorId !== ctx.state.user.id && ctx.state.user.role !== 'admin') {
+        ctx.throw(403, '权限不足，仅作者或管理员可删除此文');
     }
     await article.destroy();
     ctx.body = { message: '文章已删除' };
