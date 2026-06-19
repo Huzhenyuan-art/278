@@ -22,9 +22,10 @@ const Dashboard = () => {
         const fetchTags = async () => {
             try {
                 const data = await HttpUtil.get('/tag');
-                setTags(data);
+                setTags(Array.isArray(data) ? data : []);
             } catch (error) {
                 console.error("Failed to fetch tags", error);
+                setTags([]);
             } finally {
                 setTagsLoading(false);
             }
@@ -46,17 +47,39 @@ const Dashboard = () => {
             if (sortOrder) params.append('sort', sortOrder);
             const url = `/article?${params.toString()}`;
             const data = await HttpUtil.get(url);
-            const { results, total: totalCount, totalPages: tp } = data;
-            setTotal(totalCount);
-            setTotalPages(tp);
-            setPage(pageNum);
-            if (isLoadMore) {
-                setArticles(prev => [...prev, ...results]);
+            if (data && typeof data === 'object' && Array.isArray(data.results)) {
+                const { results, total: totalCount, totalPages: tp } = data;
+                setTotal(typeof totalCount === 'number' ? totalCount : 0);
+                setTotalPages(typeof tp === 'number' ? tp : 1);
+                setPage(pageNum);
+                if (isLoadMore) {
+                    setArticles(prev => [...prev, ...results]);
+                } else {
+                    setArticles(results);
+                }
+            } else if (Array.isArray(data)) {
+                setTotal(data.length);
+                setTotalPages(1);
+                setPage(1);
+                if (isLoadMore) {
+                    setArticles(prev => [...prev, ...data]);
+                } else {
+                    setArticles(data);
+                }
             } else {
-                setArticles(results);
+                setTotal(0);
+                setTotalPages(1);
+                setPage(1);
+                if (!isLoadMore) setArticles([]);
             }
         } catch (error) {
             console.error("Failed to fetch articles", error);
+            if (!isLoadMore) {
+                setArticles([]);
+                setTotal(0);
+                setTotalPages(1);
+                setPage(1);
+            }
         } finally {
             if (isLoadMore) {
                 setLoadingMore(false);

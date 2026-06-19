@@ -41,17 +41,39 @@ const MyArticles = () => {
             if (tab?.status) params.append('status', tab.status);
             const url = `/article/mine/list?${params.toString()}`;
             const data = await HttpUtil.get(url);
-            const { results, total: totalCount, totalPages: tp } = data;
-            setTotal(totalCount);
-            setTotalPages(tp);
-            setPage(pageNum);
-            if (isLoadMore) {
-                setArticles(prev => [...prev, ...results]);
+            if (data && typeof data === 'object' && Array.isArray(data.results)) {
+                const { results, total: totalCount, totalPages: tp } = data;
+                setTotal(typeof totalCount === 'number' ? totalCount : 0);
+                setTotalPages(typeof tp === 'number' ? tp : 1);
+                setPage(pageNum);
+                if (isLoadMore) {
+                    setArticles(prev => [...prev, ...results]);
+                } else {
+                    setArticles(results);
+                }
+            } else if (Array.isArray(data)) {
+                setTotal(data.length);
+                setTotalPages(1);
+                setPage(1);
+                if (isLoadMore) {
+                    setArticles(prev => [...prev, ...data]);
+                } else {
+                    setArticles(data);
+                }
             } else {
-                setArticles(results);
+                setTotal(0);
+                setTotalPages(1);
+                setPage(1);
+                if (!isLoadMore) setArticles([]);
             }
         } catch (error) {
             console.error('Failed to fetch my articles', error);
+            if (!isLoadMore) {
+                setArticles([]);
+                setTotal(0);
+                setTotalPages(1);
+                setPage(1);
+            }
             alert('获取文章列表失败：' + error.message);
         } finally {
             if (isLoadMore) {

@@ -41,18 +41,32 @@ const AdminDashboard = () => {
         } else {
             fetchUsers();
         }
-    }, [activeTab, fetchArticles]);
+    }, [activeTab, fetchStats, fetchArticles, fetchUsers]);
 
-    const fetchStats = async () => {
+    const fetchStats = useCallback(async () => {
+        setStatsLoading(true);
         try {
             const data = await HttpUtil.get('/admin/stats');
-            setStats(data);
+            if (data && typeof data === 'object') {
+                setStats(data);
+            } else {
+                setStats({
+                    totalUsers: 0, adminCount: 0, regularUserCount: 0,
+                    totalArticles: 0, publishedCount: 0, draftCount: 0,
+                    totalComments: 0, totalLikes: 0
+                });
+            }
         } catch (error) {
             console.error("Failed to fetch stats", error);
+            setStats({
+                totalUsers: 0, adminCount: 0, regularUserCount: 0,
+                totalArticles: 0, publishedCount: 0, draftCount: 0,
+                totalComments: 0, totalLikes: 0
+            });
         } finally {
             setStatsLoading(false);
         }
-    };
+    }, []);
 
     const fetchArticles = useCallback(async (pageNum = 1) => {
         setArticlesLoading(true);
@@ -64,31 +78,52 @@ const AdminDashboard = () => {
             params.append('sort', articleSortOrder);
             const url = `/admin/articles?${params.toString()}`;
             const data = await HttpUtil.get(url);
-            const { results, total, totalPages } = data;
-            setArticles(results);
-            setArticleTotal(total);
-            setArticleTotalPages(totalPages);
-            setArticlePage(pageNum);
+            if (data && typeof data === 'object' && Array.isArray(data.results)) {
+                const { results, total, totalPages } = data;
+                setArticles(results);
+                setArticleTotal(typeof total === 'number' ? total : 0);
+                setArticleTotalPages(typeof totalPages === 'number' ? totalPages : 1);
+                setArticlePage(pageNum);
+            } else if (Array.isArray(data)) {
+                setArticles(data);
+                setArticleTotal(data.length);
+                setArticleTotalPages(1);
+                setArticlePage(1);
+            } else {
+                setArticles([]);
+                setArticleTotal(0);
+                setArticleTotalPages(1);
+                setArticlePage(1);
+            }
         } catch (error) {
             console.error("Failed to fetch articles", error);
+            setArticles([]);
+            setArticleTotal(0);
+            setArticleTotalPages(1);
+            setArticlePage(1);
             alert('获取文章列表失败: ' + error.message);
         } finally {
             setArticlesLoading(false);
         }
     }, [articlePageSize, statusFilter, articleSortOrder]);
 
-    const fetchUsers = async () => {
+    const fetchUsers = useCallback(async () => {
         setUsersLoading(true);
         try {
             const data = await HttpUtil.get('/admin/users');
-            setUsers(data);
+            if (Array.isArray(data)) {
+                setUsers(data);
+            } else {
+                setUsers([]);
+            }
         } catch (error) {
             console.error("Failed to fetch users", error);
+            setUsers([]);
             alert('获取用户列表失败: ' + error.message);
         } finally {
             setUsersLoading(false);
         }
-    };
+    }, []);
 
     const handleDeleteArticle = async (articleId, e) => {
         e.stopPropagation();
@@ -161,18 +196,18 @@ const AdminDashboard = () => {
         }
     };
 
-    const filteredArticles = articles
+    const filteredArticles = Array.isArray(articles) ? articles
         .filter(article => {
-            const matchesSearch = article.title.toLowerCase().includes(articleSearchTerm.toLowerCase()) ||
-                                 article.user?.username?.toLowerCase().includes(articleSearchTerm.toLowerCase());
+            const matchesSearch = (article.title || '').toLowerCase().includes(articleSearchTerm.toLowerCase()) ||
+                                 ((article.user?.username || '').toLowerCase().includes(articleSearchTerm.toLowerCase()));
             return matchesSearch;
         })
         .sort((a, b) => {
             let aVal, bVal;
             switch (articleSortBy) {
                 case 'title':
-                    aVal = a.title;
-                    bVal = b.title;
+                    aVal = a.title || '';
+                    bVal = b.title || '';
                     break;
                 case 'username':
                     aVal = a.user?.username || '';
@@ -195,12 +230,12 @@ const AdminDashboard = () => {
                 return aVal > bVal ? 1 : -1;
             }
             return aVal < bVal ? 1 : -1;
-        });
+        }) : [];
 
-    const filteredUsers = users
+    const filteredUsers = Array.isArray(users) ? users
         .filter(user => {
-            const matchesSearch = user.username.toLowerCase().includes(userSearchTerm.toLowerCase()) ||
-                                 (user.email && user.email.toLowerCase().includes(userSearchTerm.toLowerCase()));
+            const matchesSearch = (user.username || '').toLowerCase().includes(userSearchTerm.toLowerCase()) ||
+                                 ((user.email || '').toLowerCase().includes(userSearchTerm.toLowerCase()));
             const matchesRole = roleFilter === 'all' || user.role === roleFilter;
             return matchesSearch && matchesRole;
         })
