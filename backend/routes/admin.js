@@ -157,13 +157,40 @@ router.get('/articles', adminMiddleware, async (ctx) => {
         });
 
         const articlesWithTags = await attachTagsToArticles(articles);
-        const plainArticles = articlesWithTags.map(a => Article.build(a, { isNewRecord: false }));
-        const likedArticles = await attachLikeInfo(plainArticles, userId);
-        const articlesWithComments = await attachCommentCount(likedArticles);
+        const articleIds = articlesWithTags.map(a => a.id);
 
-        ctx.body = articlesWithComments.map((a, i) => ({
-            ...a,
-            tags: articlesWithTags[i].tags
+        const likeCounts = await Like.findAll({
+            attributes: ['articleId', [Like.sequelize.fn('COUNT', '*'), 'count']],
+            where: { articleId: { [Op.in]: articleIds } },
+            group: ['articleId']
+        });
+        const likeCountMap = Object.fromEntries(
+            likeCounts.map(l => [l.articleId, parseInt(l.get('count'))])
+        );
+
+        let likedMap = {};
+        const userLikes = await Like.findAll({
+            attributes: ['articleId'],
+            where: { articleId: { [Op.in]: articleIds }, userId }
+        });
+        likedMap = Object.fromEntries(
+            userLikes.map(l => [l.articleId, true])
+        );
+
+        const commentCounts = await Comment.findAll({
+            attributes: ['articleId', [Comment.sequelize.fn('COUNT', '*'), 'count']],
+            where: { articleId: { [Op.in]: articleIds } },
+            group: ['articleId']
+        });
+        const commentCountMap = Object.fromEntries(
+            commentCounts.map(c => [c.articleId, parseInt(c.get('count'))])
+        );
+
+        ctx.body = articlesWithTags.map(article => ({
+            ...article,
+            likeCount: likeCountMap[article.id] || 0,
+            liked: !!likedMap[article.id],
+            commentCount: commentCountMap[article.id] || 0
         }));
     } catch (err) {
         ctx.status = err.status || 500;

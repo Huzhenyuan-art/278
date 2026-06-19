@@ -390,7 +390,7 @@ const AdminDashboard = () => {
                                                     </div>
                                                 </th>
                                                 <th 
-                                                    className="px-6 py-4 text-left text-xs font-bold text-gray-600 uppercase tracking-wider cursor-pointer hover:bg-gray-100/50 transition-colors hidden md:table-cell"
+                                                    className="px-6 py-4 text-left text-xs font-bold text-gray-600 uppercase tracking-wider cursor-pointer hover:bg-gray-100/50 transition-colors"
                                                     onClick={() => handleArticleSort('username')}
                                                 >
                                                     <div className="flex items-center gap-1.5">
@@ -429,7 +429,7 @@ const AdminDashboard = () => {
                                                     </div>
                                                 </th>
                                                 <th 
-                                                    className="px-6 py-4 text-left text-xs font-bold text-gray-600 uppercase tracking-wider cursor-pointer hover:bg-gray-100/50 transition-colors hidden lg:table-cell"
+                                                    className="px-6 py-4 text-left text-xs font-bold text-gray-600 uppercase tracking-wider cursor-pointer hover:bg-gray-100/50 transition-colors hidden md:table-cell"
                                                     onClick={() => handleArticleSort('createdAt')}
                                                 >
                                                     <div className="flex items-center gap-1.5">
@@ -475,12 +475,12 @@ const AdminDashboard = () => {
                                                                 </div>
                                                             </div>
                                                         </td>
-                                                        <td className="px-6 py-4 hidden md:table-cell">
+                                                        <td className="px-6 py-4">
                                                             <div className="flex items-center gap-2">
                                                                 <div className="w-7 h-7 rounded-full bg-gradient-to-br from-blue-400 to-indigo-500 flex items-center justify-center text-white text-xs font-bold shrink-0">
                                                                     {article.user?.username?.charAt(0).toUpperCase()}
                                                                 </div>
-                                                                <span className="text-sm font-medium text-gray-700">{article.user?.username}</span>
+                                                                <span className="text-sm font-medium text-gray-700 truncate max-w-[120px]">{article.user?.username || '未知作者'}</span>
                                                             </div>
                                                         </td>
                                                         <td className="px-6 py-4 hidden lg:table-cell">
@@ -519,10 +519,10 @@ const AdminDashboard = () => {
                                                         <td className="px-6 py-4 text-center hidden md:table-cell">
                                                             <span className="text-sm font-bold text-gray-700">{article.commentCount || 0}</span>
                                                         </td>
-                                                        <td className="px-6 py-4 hidden lg:table-cell">
+                                                        <td className="px-6 py-4 hidden md:table-cell">
                                                             <div className="flex items-center gap-1.5 text-gray-500">
                                                                 <Clock size={13} />
-                                                                <span className="text-xs font-medium">{formatDate(article.createdAt)}</span>
+                                                                <span className="text-xs font-medium">{formatDate(article.createdAt, { showTime: true })}</span>
                                                             </div>
                                                         </td>
                                                         <td className="px-6 py-4">

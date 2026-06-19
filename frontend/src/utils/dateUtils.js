@@ -20,14 +20,20 @@ const parseDate = (dateInput) => {
         }
 
         let normalized = trimmed;
+        
         if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(trimmed)) {
             normalized = trimmed.replace(' ', 'T');
         }
+        
         if (/^\d{4}\/\d{2}\/\d{2}/.test(trimmed)) {
             normalized = trimmed.replace(/\//g, '-');
             if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(normalized)) {
                 normalized = normalized.replace(' ', 'T');
             }
+        }
+
+        if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(trimmed)) {
+            normalized = trimmed;
         }
 
         const d = new Date(normalized);

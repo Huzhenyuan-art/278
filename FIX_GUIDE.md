@@ -1777,3 +1777,316 @@ if (article.status === 'draft' && article.authorId !== userId) {
 
 **文档版本**：v1.0（管理员草稿可见性越权修复）  
 **最后更新**：2026-06-19
+
+---
+
+# 管理页面作者列与创建时间显示异常修复指南
+
+## 文档信息
+
+| 项目 | 内容 |
+|------|------|
+| **问题编号** | FIX-009 |
+| **问题类型** | 后端数据丢失 + 前端响应式类名错误 |
+| **影响模块** | 后端 `/admin/articles` 接口 + 前端 `AdminDashboard.jsx` |
+| **发现日期** | 2026-06-19 |
+| **修复日期** | 2026-06-19 |
+| **修复人员** | AI Assistant |
+
+---
+
+## 1. 问题现象
+
+用户反馈管理控制台（`/admin`）文章列表存在两个显示问题：
+
+### 问题 1：作者列只显示蓝色圆图，无法分辨作者
+- **现象**：作者列仅显示一个带首字母的蓝色圆形头像，没有用户名文字，无法判断文章作者是谁
+- **表象误导**：看起来像是前端没写用户名显示逻辑，但实际代码中 `{article.user?.username}` 已存在
+
+### 问题 2：创建时间列只显示 `-`（减号/占位符）
+- **现象**：每一行的创建时间列都显示 `-`，而不是具体的日期时间
+- **表象误导**：看起来像是 `formatDate` 解析失败的 fallback 值，但本质上 `article.createdAt` 字段本身就不存在
+
+---
+
+## 2. 根本原因分析
+
+两个问题涉及**后端数据丢失**和**前端响应式类名错误**两个层面，叠加导致最终视觉异常。
+
+### 2.1 后端核心问题：`Article.build()` 丢失关联与非表字段
+
+**文件**：[admin.js](file:///d:/Desktop/新建文件夹%20(2)/278-20260128-123520/278/backend/routes/admin.js#L149-L167)
+
+**原错误代码**：
+```javascript
+const articles = await Article.findAll({
+    include: [
+        { model: User, attributes: ['id', 'username'] },  // ← include 的 user
+        { model: Tag, through: { attributes: [] }, ... }
+    ]
+});
+
+const articlesWithTags = await attachTagsToArticles(articles);
+
+// ❌ 问题根源：Article.build() 只会构建 Article 模型自身字段
+const plainArticles = articlesWithTags.map(a => Article.build(a, { isNewRecord: false }));
+
+const likedArticles = await attachLikeInfo(plainArticles, userId);
+// attachLikeInfo 内部调用 article.toJSON()，但此时 user、createdAt 等已丢失
+```
+
+#### 为什么 `Article.build()` 会丢字段？
+
+`Sequelize.Model.build(data)` 的行为：
+1. **只接受模型自身 `attributes` 中定义的字段**（如 `id`、`title`、`content`、`status`、`authorId` 等）
+2. **不会处理 `include` 关联查询得到的嵌套对象** — `user`、`tags` 属于关联，不属于 Article 表的列，build 时会被静默丢弃
+3. **可能丢失自动维护字段** — 对于 `createdAt`、`updatedAt` 这类 Sequelize 自动维护的时间戳，在纯对象 → 实例的转换过程中因上下文缺失也可能丢失
+
+最终返回给前端的每篇文章结构：
+```json
+{
+  "id": 1,
+  "title": "...",
+  "likeCount": 0,
+  "liked": false,
+  "commentCount": 0,
+  "tags": [...]
+  // ❌ 缺少：user（作者信息）
+  // ❌ 缺少：createdAt、updatedAt
+}
+```
+
+### 2.2 前端叠加问题：响应式断点类名导致列被隐藏
+
+即使后端返回了正确的 `user` 字段，前端响应式类名也会导致作者列在中等宽度及以下屏幕完全不可见：
+
+**原错误代码**（作者列表头和单元格）：
+```jsx
+<th className="... hidden md:table-cell">作者</th>     // ← 仅在 md 以上显示
+<td className="... hidden md:table-cell">...</td>     // ← 仅在 md 以上显示
+```
+
+同理，创建时间列使用了 `hidden lg:table-cell`，只有在 `lg`（1024px）及以上才可见。
+
+当用户使用笔记本电脑（常见 1366×768 分辨率，宽度介于 `md` 和 `lg` 之间）：
+- 作者列：✅ 可见
+- 创建时间列：❌ 被隐藏
+
+在平板电脑或窄窗口下（< `md` = 768px）：
+- 作者列：❌ 被隐藏
+- 创建时间列：❌ 被隐藏
+
+### 2.3 问题发生机理总结
+
+```
+后端数据流：
+  Article.findAll + include User
+       ↓ 正常包含 user、createdAt
+  attachTagsToArticles → 纯对象数组
+       ↓ user、createdAt 还在
+  Article.build(a)  ← ❌ 关联字段 user 和时间戳被丢弃
+       ↓ 只剩表字段
+  attachLikeInfo → toJSON() 展开
+       ↓ 最终 JSON 无 user、无 createdAt
+
+前端显示：
+  article.user → undefined  →  头像首字母 article.user?.username?.charAt(0) → undefined?.charAt(0) → undefined
+                                 （头像显示空或首字母异常，无用户名文字）
+  article.createdAt → undefined  →  formatDate(undefined) → fallback '-'
+  响应式类名 hidden md/lg  →  中窄屏时整列被隐藏
+```
+
+---
+
+## 3. 修复方案
+
+### 3.1 后端：废弃 `Article.build()` 方案，直接在纯对象层计算附加信息
+
+**修改文件**：[admin.js](file:///d:/Desktop/新建文件夹%20(2)/278-20260128-123520/278/backend/routes/admin.js#L137-L199)
+
+核心思路：
+1. `attachTagsToArticles` 返回纯对象数组，**保留所有原始字段**（包括 `user`、`createdAt`、`updatedAt`）
+2. 后续的点赞数、点赞状态、评论数计算，全部**直接操作纯对象**，不做 `Article.build()` 转换
+3. 最终将所有附加字段 merge 到 `articlesWithTags` 上返回
+
+**修复后代码**：
+```javascript
+const articlesWithTags = await attachTagsToArticles(articles);
+const articleIds = articlesWithTags.map(a => a.id);
+
+// 点赞数
+const likeCounts = await Like.findAll({...});
+const likeCountMap = Object.fromEntries(...);
+
+// 当前用户是否点赞
+const userLikes = await Like.findAll({...});
+const likedMap = Object.fromEntries(...);
+
+// 评论数
+const commentCounts = await Comment.findAll({...});
+const commentCountMap = Object.fromEntries(...);
+
+// ✅ 直接在纯对象上 merge，所有原始字段（user、createdAt）均保留
+ctx.body = articlesWithTags.map(article => ({
+    ...article,                              // ← user、createdAt 等在这里
+    likeCount: likeCountMap[article.id] || 0,
+    liked: !!likedMap[article.id],
+    commentCount: commentCountMap[article.id] || 0
+}));
+```
+
+这样最终返回给前端的 JSON 结构：
+```json
+{
+  "id": 1,
+  "title": "...",
+  "user": { "id": 2, "username": "user" },  // ✅ 已恢复
+  "createdAt": "2024-01-15T10:30:00.000Z",   // ✅ 已恢复
+  "likeCount": 5,
+  "liked": false,
+  "commentCount": 2,
+  "tags": [...]
+}
+```
+
+### 3.2 前端：调整响应式断点 + 兜底文本
+
+#### 作者列（表头和数据列）
+将 `hidden md:table-cell` 改为**始终可见**，同时为用户名增加 `truncate` 和最大宽度防止溢出：
+
+```jsx
+// 表头
+<th className="px-6 py-4 text-left text-xs font-bold ...">作者</th>   // ✅ 去掉 hidden md
+
+// 数据单元格
+<td className="px-6 py-4">                                               // ✅ 去掉 hidden md
+    <div className="flex items-center gap-2">
+        <div className="w-7 h-7 rounded-full ...">{article.user?.username?.charAt(0).toUpperCase()}</div>
+        <span className="text-sm font-medium text-gray-700 truncate max-w-[120px]">
+            {article.user?.username || '未知作者'}                        // ✅ 增加兜底文字
+        </span>
+    </div>
+</td>
+```
+
+#### 创建时间列（表头和数据列）
+将 `hidden lg:table-cell` 改为 `hidden md:table-cell`，在中等宽度（768px）以上即可见，并同时显示时间：
+
+```jsx
+// 表头
+<th className="... hidden md:table-cell">创建时间</th>    // ✅ hidden lg → hidden md
+
+// 数据单元格
+<td className="px-6 py-4 hidden md:table-cell">          // ✅ hidden lg → hidden md
+    <div className="flex items-center gap-1.5 text-gray-500">
+        <Clock size={13} />
+        <span className="text-xs font-medium">
+            {formatDate(article.createdAt, { showTime: true })}          // ✅ 同时显示日期和时间
+        </span>
+    </div>
+</td>
+```
+
+### 3.3 额外加固：`dateUtils.js` ISO 格式兼容性
+
+Sequelize 返回的 ISO 字符串通常是 `YYYY-MM-DDTHH:mm:ss.SSSZ` 格式。虽然原生 `new Date()` 已支持，但为了防御性编程，在 `parseDate` 中显式标注该格式的处理分支（当前已存在正则校验，此步为文档确认 + 注释提醒）。
+
+---
+
+## 4. 修复前后对比
+
+| 问题 | 修复前 | 修复后 |
+|------|--------|--------|
+| 作者列可见性（中屏/窄屏） | ❌ `hidden md` 在窄屏下整列被隐藏 | ✅ 始终可见 |
+| 作者列用户名 | ❌ `undefined` 导致只显示蓝色圆图 | ✅ 显示完整用户名，超长 truncate，无数据时显示「未知作者」 |
+| 创建时间列可见性（1366px 笔记本） | ❌ `hidden lg` 被隐藏 | ✅ `hidden md` 正常可见 |
+| 创建时间内容 | ❌ `undefined` → `formatDate` fallback `-` | ✅ 显示完整日期 + 时间 |
+| 按时间排序 | ❌ `getDateTimestamp(undefined)` 返回 0，排序错乱 | ✅ 正常按时间升序/降序 |
+| 按作者排序 | ❌ `article.user?.username` 为 undefined，所有文章排在同一组 | ✅ 按作者姓名字母正常排序 |
+
+---
+
+## 5. 验证步骤
+
+### 5.1 后端接口验证（HTTP 客户端或浏览器）
+
+调用 `GET /admin/articles`（需 admin Token），检查响应 JSON：
+
+```jsonc
+[
+  {
+    "id": 1,
+    "title": "...",
+    "user": { "id": 2, "username": "user" },   // ✅ 存在且结构正确
+    "createdAt": "2024-01-15T10:30:00.000Z",   // ✅ 存在且是合法 ISO 字符串
+    "updatedAt": "...",
+    "likeCount": 0,
+    "liked": false,
+    "commentCount": 0,
+    "tags": [...]
+  }
+]
+```
+
+### 5.2 前端页面验证
+
+| # | 场景 | 操作步骤 | 预期结果 |
+|---|------|---------|---------|
+| 1 | 作者列显示 | admin 登录 → 进入 /admin | 每一行显示蓝色头像 + 作者用户名（如 `user`、`admin`），不再只有蓝圈 |
+| 2 | 作者列窄屏显示 | 浏览器 DevTools 把宽度调到 768px 以下（如 375px 手机宽度） | 作者列**仍然可见**，用户名显示，超长截断 |
+| 3 | 时间列显示 | 浏览器宽度 ≥ 768px | 创建时间列可见，显示类似 `2024/1/15 下午6:30:00`，不再显示 `-` |
+| 4 | 按作者排序 | 点击「作者」表头 | 文章按作者用户名正常排序，无乱序 |
+| 5 | 按时间排序 | 点击「创建时间」表头 | 文章按时间正常升序/降序排列 |
+| 6 | 无作者兜底 | 用 HTTP 客户端临时把一篇文章的 authorId 设为不存在的值 | 前端显示「未知作者」占位，不崩 UI |
+
+---
+
+## 6. 经验教训与预防措施
+
+### 6.1 Sequelize 使用守则
+
+1. **`Model.build()` 仅用于构建表字段**，不要把它当作纯对象转实例的通用方法。`include` 关联数据、虚拟字段、自动时间戳均可能在转换过程中丢失。
+2. 若只需要附加计算字段（如 likeCount、commentCount），**直接在纯对象层做 merge**，无需回绕到 Sequelize 实例。
+3. `toJSON()` 的使用前提：确保当前对象已经包含所有需要返回的字段。对 `build()` 生成的实例调用 `toJSON()` 得到的字段集合是不可靠的。
+
+### 6.2 响应式设计守则
+
+1. **关键信息列不要轻易设 `hidden`**。作者名是判断文章归属的核心信息，任何屏幕尺寸都应可见，宽度不够时宁可缩小字号、增加 `truncate`，也不要整列隐藏。
+2. 选择断点时考虑常见设备：
+   - `sm`（640px）：大屏手机
+   - `md`（768px）：平板 / 小笔记本
+   - `lg`（1024px）：标准笔记本
+   - 时间戳这类次要信息可从 `md` 起显示，但不应等到 `lg`
+
+### 6.3 代码审查清单
+
+- [ ] 新接口返回的 JSON 中，所有前端需要的字段（关联、计算、时间戳）都实际存在吗？
+- [ ] 响应式类名 `hidden` 是否隐藏了不该隐藏的关键列？
+- [ ] 显示字段是否有兜底值（如 `|| '未知作者'`）？
+
+---
+
+## 7. 修改文件清单
+
+| 文件 | 修改类型 | 说明 |
+|------|----------|------|
+| `backend/routes/admin.js` `GET /admin/articles` | 🔧 修复 | 移除 `Article.build()` 中间转换，直接在纯对象层计算并 merge 附加字段，保留 `user`、`createdAt` 等 |
+| `frontend/src/pages/AdminDashboard.jsx` 作者列表头 | 🔧 修复 | 移除 `hidden md:table-cell`，改为始终可见 |
+| `frontend/src/pages/AdminDashboard.jsx` 作者列单元格 | 🔧 修复 | 移除 `hidden md:table-cell`，用户名加 `truncate max-w-[120px]` 和 `|| '未知作者'` 兜底 |
+| `frontend/src/pages/AdminDashboard.jsx` 创建时间表头 | 🔧 修复 | `hidden lg:table-cell` → `hidden md:table-cell` |
+| `frontend/src/pages/AdminDashboard.jsx` 创建时间单元格 | 🔧 修复 | `hidden lg:table-cell` → `hidden md:table-cell`，`formatDate` 加 `{ showTime: true }` |
+| `frontend/src/utils/dateUtils.js` | 🔧 加固 | 显式保留 ISO 8601 格式正则分支，代码逻辑确认兼容 |
+| `FIX_GUIDE.md` | 📝 文档 | 追加本次 FIX-009 记录 |
+
+---
+
+## 8. 参考资料
+
+- [Sequelize 官方文档 - Model.build()](https://sequelize.org/docs/v6/class/src/model.js~Model.html#static-method-build)
+- [Sequelize 官方文档 - 关联查询 (Includes)](https://sequelize.org/docs/v6/advanced-association-concepts/eager-loading/)
+- [Tailwind CSS 响应式断点](https://tailwindcss.com/docs/responsive-design)
+
+---
+
+**文档版本**：v1.0（管理页面作者列与时间显示修复）  
+**最后更新**：2026-06-19
