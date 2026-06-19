@@ -303,3 +303,113 @@ npm run build
 3. **集成测试**：为文章详情、点赞、评论等核心接口补充集成测试，覆盖 200、404、500 等状态码
 4. **全局错误监控**：生产环境可接入 Sentry 等监控工具，第一时间发现 `ReferenceError` 类问题
 
+---
+
+# 个人资料页面 Tag 模型未导入修复指南
+
+## 问题概述
+
+用户访问个人资料页面（"我的文章" tab）时，出现 `ReferenceError: Tag is not defined` 错误，导致用户文章列表无法加载。
+
+---
+
+## 错误现象
+
+### 复现步骤
+1. 启动后端服务
+2. 用户登录后访问个人中心或"我的文章"页面
+3. 前端调用 `GET /user/articles` 接口
+4. 接口返回 500 错误，页面显示加载失败
+
+### 错误信息
+```
+ReferenceError: Tag is not defined
+    at .../backend/routes/profile.js:193:15
+```
+
+### 影响范围
+- 个人资料页面的文章列表
+- 用户中心的"我的文章"功能
+- 所有调用 `GET /user/articles` 接口的场景
+
+---
+
+## 根本原因
+
+**后端路由 `backend/routes/profile.js` 中缺少 `Tag` 模型的导入**。
+
+在 `GET /user/articles` 接口中（第 189-197 行），使用 `Article.findAll` 查询文章时，通过 `include` 关联查询了 `Tag` 模型以获取文章标签：
+```javascript
+{ model: Tag, through: { attributes: [] }, attributes: ['id', 'name', 'color'] }
+```
+
+但在文件顶部第 2 行的模型导入中，`Tag` 未被包含在解构列表里：
+```javascript
+const { User, Article, Like, Comment } = require('../models');  // 缺少 Tag
+```
+
+---
+
+## 修复方案
+
+**文件**: `backend/routes/profile.js`
+
+**修改前**:
+```javascript
+const { User, Article, Like, Comment } = require('../models');
+```
+
+**修改后**:
+```javascript
+const { User, Article, Like, Comment, Tag } = require('../models');
+```
+
+只需在解构导入中添加 `Tag` 即可。
+
+---
+
+## 验证步骤
+
+### 1. 语法检查
+```bash
+cd backend
+node -c routes/profile.js
+# 预期：无语法错误
+```
+
+### 2. 接口测试
+```bash
+# 启动服务
+npm run dev
+
+# 测试用户文章接口（需要有效token）
+curl -H "Authorization: Bearer <token>" http://localhost:3000/api/user/articles
+# 预期：返回 200 及文章列表，每篇文章包含 tags 数组
+```
+
+### 3. 功能验证
+1. 登录账号
+2. 进入个人中心/我的文章页面
+3. 确认文章列表正常显示
+4. 确认每篇文章的标签正确显示
+5. 测试不同状态筛选（已发布/草稿），确认均正常
+
+---
+
+## 相关问题汇总
+
+这是本次重构中发现的第 **2** 个模型导入遗漏问题（第 1 个是 `article.js` 缺少 `Like`）。此类问题的共同特征：
+
+- 代码重构/合并时，从其他文件复制了 include 配置，但忘记同步导入
+- 静态代码检查工具（如 ESLint 的 `no-undef`）可提前发现此类问题
+
+建议项目接入 ESLint 并启用 `no-undef` 规则，防止类似问题再次发生。
+
+---
+
+## 改动文件
+
+| 文件 | 改动类型 | 说明 |
+|------|----------|------|
+| `backend/routes/profile.js` | 修改 | 补充 `Tag` 模型到导入列表 |
+

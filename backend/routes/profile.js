@@ -1,5 +1,5 @@
 const Router = require('koa-router');
-const { User, Article, Like, Comment } = require('../models');
+const { User, Article, Like, Comment, Tag } = require('../models');
 const { authMiddleware } = require('../utils/rbac');
 const bcrypt = require('bcryptjs');
 const { Op } = require('sequelize');
