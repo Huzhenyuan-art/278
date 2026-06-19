@@ -15,6 +15,10 @@ const Article = sequelize.define('article', {
     type: DataTypes.TEXT,
     allowNull: false,
   },
+  coverImage: {
+    type: DataTypes.STRING,
+    allowNull: true,
+  },
   status: {
     type: DataTypes.STRING,
     defaultValue: 'published',
@@ -28,7 +32,7 @@ const Article = sequelize.define('article', {
     }
   }
 }, {
-  tableName: 'article', // Explicit singular table name
+  tableName: 'article',
 });
 
 module.exports = Article;

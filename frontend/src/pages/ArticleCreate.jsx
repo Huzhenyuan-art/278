@@ -3,10 +3,11 @@ import { useNavigate } from 'react-router-dom';
 import { HttpUtil } from '../utils/HttpUtil';
 import { PenTool, Save, ArrowLeft, Sparkles, Tag, Plus, X } from 'lucide-react';
 import MarkdownEditor from '../components/MarkdownEditor';
+import CoverImageUploader from '../components/CoverImageUploader';
 
 const ArticleCreate = () => {
     const navigate = useNavigate();
-    const [formData, setFormData] = useState({ title: '', content: '', status: 'published' });
+    const [formData, setFormData] = useState({ title: '', content: '', status: 'published', coverImage: '' });
     const [loading, setLoading] = useState(false);
     const [tags, setTags] = useState([]);
     const [selectedTagIds, setSelectedTagIds] = useState([]);
@@ -105,6 +106,11 @@ const ArticleCreate = () => {
                             onChange={e => setFormData({...formData, title: e.target.value})}
                         />
                     </div>
+
+                    <CoverImageUploader
+                        value={formData.coverImage}
+                        onChange={url => setFormData({...formData, coverImage: url})}
+                    />
                     
                     <div className="space-y-3">
                         <label className="block text-sm font-bold text-gray-700 ml-1 flex items-center gap-2">

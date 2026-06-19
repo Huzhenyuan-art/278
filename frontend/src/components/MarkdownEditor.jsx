@@ -1,9 +1,13 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import MarkdownPreview from './MarkdownPreview';
-import { Eye, Edit3, Code, HelpCircle } from 'lucide-react';
+import { Eye, Edit3, Code, HelpCircle, Image as ImageIcon, Loader2 } from 'lucide-react';
+import { HttpUtil } from '../utils/HttpUtil';
 
 const MarkdownEditor = ({ value, onChange, placeholder = '在这里用 Markdown 编写内容...', rows = 15 }) => {
     const [viewMode, setViewMode] = useState('split');
+    const [uploadingImage, setUploadingImage] = useState(false);
+    const textareaRef = useRef(null);
+    const fileInputRef = useRef(null);
 
     const renderToolbarButton = (mode, icon, label) => (
         <button
@@ -20,6 +24,60 @@ const MarkdownEditor = ({ value, onChange, placeholder = '在这里用 Markdown 
         </button>
     );
 
+    const insertAtCursor = (text) => {
+        const textarea = textareaRef.current;
+        if (!textarea) {
+            onChange(value + text);
+            return;
+        }
+
+        const start = textarea.selectionStart;
+        const end = textarea.selectionEnd;
+        const newValue = value.substring(0, start) + text + value.substring(end);
+        onChange(newValue);
+
+        setTimeout(() => {
+            textarea.focus();
+            const newPos = start + text.length;
+            textarea.setSelectionRange(newPos, newPos);
+        }, 0);
+    };
+
+    const handleImageUpload = async (e) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+
+        if (!file.type.startsWith('image/')) {
+            alert('请选择图片文件');
+            return;
+        }
+
+        if (file.size > 5 * 1024 * 1024) {
+            alert('图片大小不能超过 5MB');
+            return;
+        }
+
+        setUploadingImage(true);
+        try {
+            const result = await HttpUtil.uploadContentImage(file);
+            const imageMarkdown = `\n![${file.name}](${result.url})\n`;
+            insertAtCursor(imageMarkdown);
+        } catch (err) {
+            alert('图片上传失败: ' + (err.message || '未知错误'));
+        } finally {
+            setUploadingImage(false);
+            if (fileInputRef.current) {
+                fileInputRef.current.value = '';
+            }
+        }
+    };
+
+    const handleImageClick = () => {
+        if (!uploadingImage) {
+            fileInputRef.current?.click();
+        }
+    };
+
     return (
         <div className="space-y-3">
             <div className="flex items-center justify-between flex-wrap gap-2">
@@ -27,12 +85,34 @@ const MarkdownEditor = ({ value, onChange, placeholder = '在这里用 Markdown 
                     {renderToolbarButton('edit', <Edit3 size={16} />, '编辑')}
                     {renderToolbarButton('split', <Code size={16} />, '分栏')}
                     {renderToolbarButton('preview', <Eye size={16} />, '预览')}
+                    <div className="w-px h-6 bg-gray-200 mx-1"></div>
+                    <button
+                        type="button"
+                        onClick={handleImageClick}
+                        disabled={uploadingImage}
+                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-all duration-200 bg-white/60 text-gray-600 hover:bg-gray-100 hover:text-gray-800 border border-gray-200 disabled:opacity-50"
+                    >
+                        {uploadingImage ? (
+                            <Loader2 size={16} className="animate-spin" />
+                        ) : (
+                            <ImageIcon size={16} />
+                        )}
+                        <span className="hidden sm:inline">上传图片</span>
+                    </button>
                 </div>
                 <div className="flex items-center gap-1.5 text-xs text-gray-400 bg-gray-50 px-3 py-1.5 rounded-lg border border-gray-100">
                     <HelpCircle size={14} />
                     <span>支持标准 Markdown 语法（标题、列表、代码块、表格等）</span>
                 </div>
             </div>
+
+            <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/jpeg,image/png,image/gif,image/webp,image/jpg"
+                onChange={handleImageUpload}
+                className="hidden"
+            />
 
             <div className={`rounded-2xl border border-gray-200 overflow-hidden bg-white shadow-sm ${
                 viewMode === 'split' ? 'grid grid-cols-1 lg:grid-cols-2' : ''
@@ -48,6 +128,7 @@ const MarkdownEditor = ({ value, onChange, placeholder = '在这里用 Markdown 
                             </span>
                         </div>
                         <textarea
+                            ref={textareaRef}
                             required
                             rows={rows}
                             className="w-full h-full min-h-[400px] px-5 py-4 bg-white focus:bg-white outline-none resize-none font-mono text-sm text-gray-700 leading-relaxed placeholder-gray-400"

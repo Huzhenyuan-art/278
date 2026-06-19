@@ -149,4 +149,55 @@ export class HttpUtil {
             body: JSON.stringify(body),
         });
     }
+
+    static async upload(endpoint, file, fieldName = 'file') {
+        const token = this.getToken();
+        const formData = new FormData();
+        formData.append(fieldName, file);
+
+        const headers = {};
+        if (token) {
+            headers['Authorization'] = `Bearer ${token}`;
+        }
+
+        try {
+            const response = await fetch(`${this.BASE_URL}${endpoint}`, {
+                method: 'POST',
+                headers,
+                body: formData,
+            });
+
+            const data = await this.parseResponse(response);
+
+            if (response.status === 401) {
+                const hasToken = !!this.getToken();
+                this.clearAuth();
+                if (hasToken) {
+                    throw new Error(data.message || data.error || '登录已过期，请重新登录');
+                } else {
+                    throw new Error(data.message || data.error || '用户名或密码错误');
+                }
+            }
+
+            if (!response.ok) {
+                throw new Error(data.message || data.error || '上传失败，请稍后重试');
+            }
+
+            return data;
+        } catch (error) {
+            console.error('Upload Error:', error);
+            if (error.message === 'Failed to fetch') {
+                throw new Error('无法连接到服务器，请检查网络');
+            }
+            throw error;
+        }
+    }
+
+    static uploadCover(file) {
+        return this.upload('/upload/cover', file);
+    }
+
+    static uploadContentImage(file) {
+        return this.upload('/upload/content', file);
+    }
 }

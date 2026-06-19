@@ -12,6 +12,9 @@ RUN pnpm install
 
 COPY . .
 
+# Ensure uploads directory exists
+RUN mkdir -p /app/public/uploads
+
 EXPOSE 5160
 
 CMD ["node", "app.js"]

@@ -3,11 +3,12 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { HttpUtil } from '../utils/HttpUtil';
 import { PenTool, Save, ArrowLeft, Sparkles, Tag, Plus, X } from 'lucide-react';
 import MarkdownEditor from '../components/MarkdownEditor';
+import CoverImageUploader from '../components/CoverImageUploader';
 
 const ArticleEdit = () => {
     const { id } = useParams();
     const navigate = useNavigate();
-    const [formData, setFormData] = useState({ title: '', content: '', status: 'published' });
+    const [formData, setFormData] = useState({ title: '', content: '', status: 'published', coverImage: '' });
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
     const [tags, setTags] = useState([]);
@@ -26,7 +27,8 @@ const ArticleEdit = () => {
                 setFormData({ 
                     title: articleData.title, 
                     content: articleData.content, 
-                    status: articleData.status || 'published' 
+                    status: articleData.status || 'published',
+                    coverImage: articleData.coverImage || ''
                 });
                 setTags(tagsData);
                 if (articleData.tags && articleData.tags.length > 0) {
@@ -126,6 +128,11 @@ const ArticleEdit = () => {
                             onChange={e => setFormData({...formData, title: e.target.value})}
                         />
                     </div>
+
+                    <CoverImageUploader
+                        value={formData.coverImage}
+                        onChange={url => setFormData({...formData, coverImage: url})}
+                    />
                     
                     <div className="space-y-3">
                         <label className="block text-sm font-bold text-gray-700 ml-1 flex items-center gap-2">

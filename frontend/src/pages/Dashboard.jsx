@@ -157,6 +157,12 @@ const Dashboard = () => {
         }
     };
 
+    const getFullImageUrl = (url) => {
+        if (!url) return '';
+        if (url.startsWith('http')) return url;
+        return `/api${url}`;
+    };
+
     if (loading) {
         return (
             <div className="flex justify-center items-center h-[60vh]">
@@ -261,75 +267,94 @@ const Dashboard = () => {
                         <Link 
                             key={article.id} 
                             to={`/article/${article.id}`}
-                            className="group glass-card rounded-2xl p-5 flex flex-col h-full relative overflow-hidden transition-all duration-300 hover:-translate-y-1 hover:shadow-xl no-underline"
+                            className="group glass-card rounded-2xl overflow-hidden flex flex-col h-full relative transition-all duration-300 hover:-translate-y-1 hover:shadow-xl no-underline"
                         >
-                            <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-blue-500 to-indigo-600 transform scale-x-0 group-hover:scale-x-100 transition-transform duration-300 origin-left"></div>
+                            <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-blue-500 to-indigo-600 transform scale-x-0 group-hover:scale-x-100 transition-transform duration-300 origin-left z-10"></div>
                             
-                            <div className="flex items-center gap-3 mb-3">
-                                <div className="w-8 h-8 rounded-lg bg-gradient-to-tr from-blue-50 to-indigo-50 flex items-center justify-center text-blue-600 font-bold text-xs ring-1 ring-black/5 shadow-inner">
-                                    {article.user?.username?.charAt(0).toUpperCase()}
+                            {article.coverImage ? (
+                                <div className="relative h-40 overflow-hidden">
+                                    <img
+                                        src={getFullImageUrl(article.coverImage)}
+                                        alt={article.title}
+                                        className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
+                                    />
+                                    <div className="absolute inset-0 bg-gradient-to-t from-black/20 to-transparent"></div>
                                 </div>
-                                <div className="flex flex-col">
-                                    <span className="text-xs font-bold text-gray-700">{article.user?.username}</span>
-                                    <span className="text-[10px] text-gray-400 font-medium flex items-center gap-1">
-                                        <Clock size={10} />
-                                        {formatDate(article.createdAt)}
-                                    </span>
-                                </div>
-                            </div>
-
-                            <div className="flex items-center gap-2 mb-2">
-                                <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                                    article.status === 'draft'
-                                        ? 'bg-amber-50 text-amber-600 border border-amber-200'
-                                        : 'bg-emerald-50 text-emerald-600 border border-emerald-200'
-                                }`}>
-                                    {article.status === 'draft' ? '草稿' : '已发布'}
-                                </span>
-                            </div>
-                            
-                            <h3 className="text-lg font-bold text-gray-800 mb-2 group-hover:text-blue-600 transition-colors line-clamp-1 leading-tight">
-                                {article.title}
-                            </h3>
-                            
-                            {article.tags && article.tags.length > 0 && (
-                                <div className="flex flex-wrap gap-1 mb-3">
-                                    {article.tags.slice(0, 3).map(tag => (
-                                        <span
-                                            key={tag.id}
-                                            className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium text-white"
-                                            style={{ backgroundColor: tag.color }}
-                                        >
-                                            {tag.name}
-                                        </span>
-                                    ))}
-                                    {article.tags.length > 3 && (
-                                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium text-gray-500 bg-gray-100">
-                                            +{article.tags.length - 3}
-                                        </span>
-                                    )}
+                            ) : (
+                                <div className="h-40 bg-gradient-to-br from-blue-50 via-indigo-50 to-purple-50 flex items-center justify-center">
+                                    <div className="w-16 h-16 rounded-2xl bg-white/70 flex items-center justify-center shadow-inner">
+                                        <Sparkles size={28} className="text-indigo-400" />
+                                    </div>
                                 </div>
                             )}
-                            
-                            <p className="text-gray-500 mb-4 flex-grow line-clamp-3 leading-relaxed text-sm">
-                                {truncateContent(article.content)}
-                            </p>
-                            
-                            <div className="mt-auto pt-4 border-t border-gray-100/50 flex justify-between items-center">
-                                <span className="text-xs font-bold text-blue-600 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-all transform translate-x-[-5px] group-hover:translate-x-0 duration-300">
-                                    阅读更多 <ArrowRight size={14} />
-                                </span>
-                                <button
-                                    onClick={(e) => handleLike(e, article.id)}
-                                    className={`flex items-center gap-1 px-2 py-0.5 rounded-md transition-all ${
-                                        article.liked
-                                            ? 'bg-red-50 text-red-500'
-                                            : 'bg-gray-50/80 text-gray-400 hover:bg-red-50 hover:text-red-400'
-                                    } ${likingIds.has(article.id) ? 'opacity-50 pointer-events-none' : ''}`}
-                                >
-                                    <Heart size={12} fill={article.liked ? 'currentColor' : 'none'} />
-                                    <span className="text-[11px] font-medium">{article.likeCount || 0}</span>
-                                </button>
+
+                            <div className="p-5 flex flex-col flex-1">
+                                <div className="flex items-center gap-3 mb-3">
+                                    <div className="w-8 h-8 rounded-lg bg-gradient-to-tr from-blue-50 to-indigo-50 flex items-center justify-center text-blue-600 font-bold text-xs ring-1 ring-black/5 shadow-inner">
+                                        {article.user?.username?.charAt(0).toUpperCase()}
+                                    </div>
+                                    <div className="flex flex-col">
+                                        <span className="text-xs font-bold text-gray-700">{article.user?.username}</span>
+                                        <span className="text-[10px] text-gray-400 font-medium flex items-center gap-1">
+                                            <Clock size={10} />
+                                            {formatDate(article.createdAt)}
+                                        </span>
+                                    </div>
+                                </div>
+
+                                <div className="flex items-center gap-2 mb-2">
+                                    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                                        article.status === 'draft'
+                                            ? 'bg-amber-50 text-amber-600 border border-amber-200'
+                                            : 'bg-emerald-50 text-emerald-600 border border-emerald-200'
+                                    }`}>
+                                        {article.status === 'draft' ? '草稿' : '已发布'}
+                                    </span>
+                                </div>
+                                
+                                <h3 className="text-lg font-bold text-gray-800 mb-2 group-hover:text-blue-600 transition-colors line-clamp-1 leading-tight">
+                                    {article.title}
+                                </h3>
+                                
+                                {article.tags && article.tags.length > 0 && (
+                                    <div className="flex flex-wrap gap-1 mb-3">
+                                        {article.tags.slice(0, 3).map(tag => (
+                                            <span
+                                                key={tag.id}
+                                                className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium text-white"
+                                                style={{ backgroundColor: tag.color }}
+                                            >
+                                                {tag.name}
+                                            </span>
+                                        ))}
+                                        {article.tags.length > 3 && (
+                                            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium text-gray-500 bg-gray-100">
+                                                +{article.tags.length - 3}
+                                            </span>
+                                        )}
+                                    </div>
+                                )}
+                                
+                                <p className="text-gray-500 mb-4 flex-grow line-clamp-3 leading-relaxed text-sm">
+                                    {truncateContent(article.content)}
+                                </p>
+                                
+                                <div className="mt-auto pt-4 border-t border-gray-100/50 flex justify-between items-center">
+                                    <span className="text-xs font-bold text-blue-600 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-all transform translate-x-[-5px] group-hover:translate-x-0 duration-300">
+                                        阅读更多 <ArrowRight size={14} />
+                                    </span>
+                                    <button
+                                        onClick={(e) => handleLike(e, article.id)}
+                                        className={`flex items-center gap-1 px-2 py-0.5 rounded-md transition-all ${
+                                            article.liked
+                                                ? 'bg-red-50 text-red-500'
+                                                : 'bg-gray-50/80 text-gray-400 hover:bg-red-50 hover:text-red-400'
+                                        } ${likingIds.has(article.id) ? 'opacity-50 pointer-events-none' : ''}`}
+                                    >
+                                        <Heart size={12} fill={article.liked ? 'currentColor' : 'none'} />
+                                        <span className="text-[11px] font-medium">{article.likeCount || 0}</span>
+                                    </button>
+                                </div>
                             </div>
                         </Link>
                     ))}

@@ -72,6 +72,12 @@ const ArticleDetail = () => {
 
     const isAuthor = user && (user.id === article.authorId || user.role === 'admin');
 
+    const getFullImageUrl = (url) => {
+        if (!url) return '';
+        if (url.startsWith('http')) return url;
+        return `/api${url}`;
+    };
+
     return (
         <div className="max-w-4xl mx-auto space-y-6">
             <Modal 
@@ -90,59 +96,117 @@ const ArticleDetail = () => {
             </button>
 
             <article className="glass rounded-3xl overflow-hidden shadow-xl border border-white/60">
-                 <div className="relative h-64 bg-gradient-to-r from-blue-600/10 to-indigo-600/10 flex items-center justify-center overflow-hidden">
-                    <div className="absolute top-0 right-0 w-96 h-96 bg-blue-400/20 rounded-full blur-3xl -mr-32 -mt-32"></div>
-                    <div className="absolute bottom-0 left-0 w-80 h-80 bg-purple-400/20 rounded-full blur-3xl -ml-32 -mb-32"></div>
-                    
-                    <div className="relative z-10 p-10 text-center max-w-3xl">
-                        <div className="flex justify-center mb-4">
-                            <span className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-bold ${
-                                article.status === 'draft'
-                                    ? 'bg-amber-100/80 text-amber-700 border border-amber-200'
-                                    : 'bg-emerald-100/80 text-emerald-700 border border-emerald-200'
-                            }`}>
-                                {article.status === 'draft' ? '草稿' : '已发布'}
-                            </span>
-                        </div>
-                        <h1 className="text-3xl md:text-5xl font-extrabold text-gray-900 leading-tight mb-6 tracking-tight">
-                            {article.title}
-                        </h1>
-                        {article.tags && article.tags.length > 0 && (
-                            <div className="flex flex-wrap justify-center gap-2 mb-6">
-                                {article.tags.map(tag => (
-                                    <span
-                                        key={tag.id}
-                                        className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-sm font-medium text-white shadow-sm"
-                                        style={{ backgroundColor: tag.color }}
-                                    >
-                                        <Tag size={12} />
-                                        {tag.name}
-                                    </span>
-                                ))}
+                {article.coverImage ? (
+                    <div className="relative h-72 md:h-96 overflow-hidden">
+                        <img
+                            src={getFullImageUrl(article.coverImage)}
+                            alt={article.title}
+                            className="w-full h-full object-cover"
+                        />
+                        <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-black/20 to-transparent"></div>
+                        <div className="absolute bottom-0 left-0 right-0 p-8 md:p-10">
+                            <div className="flex justify-center mb-4">
+                                <span className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-bold ${
+                                    article.status === 'draft'
+                                        ? 'bg-amber-100/90 text-amber-700 border border-amber-200'
+                                        : 'bg-emerald-100/90 text-emerald-700 border border-emerald-200'
+                                }`}>
+                                    {article.status === 'draft' ? '草稿' : '已发布'}
+                                </span>
                             </div>
-                        )}
-                        <div className="flex items-center justify-center gap-4 text-sm font-medium flex-wrap">
-                            <span className="flex items-center gap-1.5 bg-white/60 backdrop-blur-md px-4 py-1.5 rounded-full text-blue-700 shadow-sm border border-white/50">
-                                <User size={14} /> {article.user?.username}
-                            </span>
-                            <span className="flex items-center gap-1.5 bg-white/60 backdrop-blur-md px-4 py-1.5 rounded-full text-gray-600 shadow-sm border border-white/50">
-                                <Calendar size={14} /> {formatDate(article.createdAt)}
-                            </span>
-                            <button
-                                onClick={handleLike}
-                                disabled={isLiking}
-                                className={`flex items-center gap-1.5 px-4 py-1.5 rounded-full shadow-sm border backdrop-blur-md transition-all ${
-                                    article.liked
-                                        ? 'bg-red-50 border-red-100 text-red-500 hover:bg-red-100'
-                                        : 'bg-white/60 border-white/50 text-gray-600 hover:bg-red-50 hover:text-red-400 hover:border-red-100'
-                                } ${isLiking ? 'opacity-50 pointer-events-none' : ''}`}
-                            >
-                                <Heart size={14} fill={article.liked ? 'currentColor' : 'none'} />
-                                <span>{article.likeCount || 0}</span>
-                            </button>
+                            <h1 className="text-3xl md:text-5xl font-extrabold text-white leading-tight mb-6 tracking-tight text-center drop-shadow-lg">
+                                {article.title}
+                            </h1>
+                            {article.tags && article.tags.length > 0 && (
+                                <div className="flex flex-wrap justify-center gap-2 mb-6">
+                                    {article.tags.map(tag => (
+                                        <span
+                                            key={tag.id}
+                                            className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-sm font-medium text-white shadow-sm backdrop-blur-sm bg-white/20 border border-white/30"
+                                        >
+                                            <Tag size={12} />
+                                            {tag.name}
+                                        </span>
+                                    ))}
+                                </div>
+                            )}
+                            <div className="flex items-center justify-center gap-4 text-sm font-medium flex-wrap">
+                                <span className="flex items-center gap-1.5 bg-white/80 backdrop-blur-md px-4 py-1.5 rounded-full text-blue-700 shadow-sm border border-white/50">
+                                    <User size={14} /> {article.user?.username}
+                                </span>
+                                <span className="flex items-center gap-1.5 bg-white/80 backdrop-blur-md px-4 py-1.5 rounded-full text-gray-600 shadow-sm border border-white/50">
+                                    <Calendar size={14} /> {formatDate(article.createdAt)}
+                                </span>
+                                <button
+                                    onClick={handleLike}
+                                    disabled={isLiking}
+                                    className={`flex items-center gap-1.5 px-4 py-1.5 rounded-full shadow-sm border backdrop-blur-md transition-all ${
+                                        article.liked
+                                            ? 'bg-red-50 border-red-100 text-red-500 hover:bg-red-100'
+                                            : 'bg-white/80 border-white/50 text-gray-600 hover:bg-red-50 hover:text-red-400 hover:border-red-100'
+                                    } ${isLiking ? 'opacity-50 pointer-events-none' : ''}`}
+                                >
+                                    <Heart size={14} fill={article.liked ? 'currentColor' : 'none'} />
+                                    <span>{article.likeCount || 0}</span>
+                                </button>
+                            </div>
                         </div>
                     </div>
-                </div>
+                ) : (
+                    <div className="relative h-64 bg-gradient-to-r from-blue-600/10 to-indigo-600/10 flex items-center justify-center overflow-hidden">
+                        <div className="absolute top-0 right-0 w-96 h-96 bg-blue-400/20 rounded-full blur-3xl -mr-32 -mt-32"></div>
+                        <div className="absolute bottom-0 left-0 w-80 h-80 bg-purple-400/20 rounded-full blur-3xl -ml-32 -mb-32"></div>
+                        
+                        <div className="relative z-10 p-10 text-center max-w-3xl">
+                            <div className="flex justify-center mb-4">
+                                <span className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-bold ${
+                                    article.status === 'draft'
+                                        ? 'bg-amber-100/80 text-amber-700 border border-amber-200'
+                                        : 'bg-emerald-100/80 text-emerald-700 border border-emerald-200'
+                                }`}>
+                                    {article.status === 'draft' ? '草稿' : '已发布'}
+                                </span>
+                            </div>
+                            <h1 className="text-3xl md:text-5xl font-extrabold text-gray-900 leading-tight mb-6 tracking-tight">
+                                {article.title}
+                            </h1>
+                            {article.tags && article.tags.length > 0 && (
+                                <div className="flex flex-wrap justify-center gap-2 mb-6">
+                                    {article.tags.map(tag => (
+                                        <span
+                                            key={tag.id}
+                                            className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-sm font-medium text-white shadow-sm"
+                                            style={{ backgroundColor: tag.color }}
+                                        >
+                                            <Tag size={12} />
+                                            {tag.name}
+                                        </span>
+                                    ))}
+                                </div>
+                            )}
+                            <div className="flex items-center justify-center gap-4 text-sm font-medium flex-wrap">
+                                <span className="flex items-center gap-1.5 bg-white/60 backdrop-blur-md px-4 py-1.5 rounded-full text-blue-700 shadow-sm border border-white/50">
+                                    <User size={14} /> {article.user?.username}
+                                </span>
+                                <span className="flex items-center gap-1.5 bg-white/60 backdrop-blur-md px-4 py-1.5 rounded-full text-gray-600 shadow-sm border border-white/50">
+                                    <Calendar size={14} /> {formatDate(article.createdAt)}
+                                </span>
+                                <button
+                                    onClick={handleLike}
+                                    disabled={isLiking}
+                                    className={`flex items-center gap-1.5 px-4 py-1.5 rounded-full shadow-sm border backdrop-blur-md transition-all ${
+                                        article.liked
+                                            ? 'bg-red-50 border-red-100 text-red-500 hover:bg-red-100'
+                                            : 'bg-white/60 border-white/50 text-gray-600 hover:bg-red-50 hover:text-red-400 hover:border-red-100'
+                                    } ${isLiking ? 'opacity-50 pointer-events-none' : ''}`}
+                                >
+                                    <Heart size={14} fill={article.liked ? 'currentColor' : 'none'} />
+                                    <span>{article.likeCount || 0}</span>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                )}
 
                 <div className="p-8 md:p-12 bg-white/50">
                     <MarkdownPreview content={article.content} />

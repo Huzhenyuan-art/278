@@ -35,6 +35,8 @@ services:
       SEED_USER_EMAIL: user@example.com
     depends_on:
       - db
+    volumes:
+      - uploads_data:/app/public/uploads
 
   frontend:
     build: 
@@ -48,3 +50,4 @@ services:
 
 volumes:
   db_data:
+  uploads_data:

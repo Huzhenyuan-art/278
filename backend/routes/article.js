@@ -254,7 +254,7 @@ router.patch('/:id/status', authMiddleware, async (ctx) => {
 
 // Create article
 router.post('/', authMiddleware, async (ctx) => {
-    const { title, content, status, tagIds } = ctx.request.body;
+    const { title, content, status, tagIds, coverImage } = ctx.request.body;
     if (!title || !content) {
         ctx.throw(400, '标题和内容为必填项');
     }
@@ -263,12 +263,16 @@ router.post('/', authMiddleware, async (ctx) => {
     }
     const sanitizedTitle = String(title).trim().slice(0, 100);
     const sanitizedContent = sanitizeMarkdown(content);
-    const article = await Article.create({
+    const createData = {
         title: sanitizedTitle,
         content: sanitizedContent,
         status: status || ARTICLE_STATUS.PUBLISHED,
         authorId: ctx.state.user.id
-    });
+    };
+    if (coverImage !== undefined && coverImage !== null) {
+        createData.coverImage = String(coverImage).trim();
+    }
+    const article = await Article.create(createData);
 
     if (tagIds && Array.isArray(tagIds) && tagIds.length > 0) {
         const tags = await Tag.findAll({ where: { id: { [Op.in]: tagIds } } });
@@ -297,7 +301,7 @@ router.put('/:id', authMiddleware, async (ctx) => {
     if (article.authorId !== ctx.state.user.id && ctx.state.user.role !== 'admin') {
         ctx.throw(403, '权限不足，仅作者或管理员可编辑此文');
     }
-    const { title, content, status, tagIds } = ctx.request.body;
+    const { title, content, status, tagIds, coverImage } = ctx.request.body;
     const updateData = {};
     if (title !== undefined) {
         updateData.title = String(title).trim().slice(0, 100);
@@ -310,6 +314,9 @@ router.put('/:id', authMiddleware, async (ctx) => {
             ctx.throw(400, `无效的状态值，仅允许：${VALID_STATUSES.join('、')}`);
         }
         updateData.status = status;
+    }
+    if (coverImage !== undefined) {
+        updateData.coverImage = coverImage ? String(coverImage).trim() : null;
     }
     await article.update(updateData);
 

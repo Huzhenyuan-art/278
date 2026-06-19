@@ -63,14 +63,23 @@ const MarkdownPreview = ({ content, className = '' }) => {
                             {children}
                         </td>
                     ),
-                    img: ({ src, alt }) => (
-                        <img
-                            src={src}
-                            alt={alt || ''}
-                            className="rounded-xl shadow-md my-4 max-w-full h-auto"
-                            loading="lazy"
-                        />
-                    ),
+                    img: ({ src, alt }) => {
+                        const resolveImageUrl = (url) => {
+                            if (!url) return '';
+                            if (url.startsWith('http')) return url;
+                            if (url.startsWith('/uploads/')) return `/api${url}`;
+                            if (url.startsWith('uploads/')) return `/api/${url}`;
+                            return url;
+                        };
+                        return (
+                            <img
+                                src={resolveImageUrl(src)}
+                                alt={alt || ''}
+                                className="rounded-xl shadow-md my-4 max-w-full h-auto"
+                                loading="lazy"
+                            />
+                        );
+                    },
                     strong: ({ children }) => <strong className="font-bold text-gray-900">{children}</strong>,
                     em: ({ children }) => <em className="italic text-gray-700">{children}</em>,
                     del: ({ children }) => <del className="line-through text-gray-500">{children}</del>,
