@@ -320,4 +320,131 @@ router.delete('/:id', authMiddleware, async (ctx) => {
     ctx.body = { message: '文章已删除' };
 });
 
+// Search articles
+router.get('/search/list', optionalAuthMiddleware, async (ctx) => {
+    const { q, page = 1, pageSize = 10 } = ctx.query;
+    const userId = ctx.state.user?.id;
+
+    if (!q || !String(q).trim()) {
+        ctx.throw(400, '搜索关键词不能为空');
+    }
+
+    const keyword = String(q).trim();
+    const likePattern = `%${keyword}%`;
+    const currentPage = Math.max(1, parseInt(page) || 1);
+    const limit = Math.min(50, Math.max(1, parseInt(pageSize) || 10));
+    const offset = (currentPage - 1) * limit;
+
+    let statusWhere = { status: 'published' };
+    if (userId) {
+        statusWhere = {
+            [Op.or]: [
+                { status: 'published' },
+                { status: 'draft', authorId: userId }
+            ]
+        };
+    }
+
+    const where = {
+        [Op.and]: [
+            statusWhere,
+            {
+                [Op.or]: [
+                    { title: { [Op.like]: likePattern } },
+                    { content: { [Op.like]: likePattern } }
+                ]
+            }
+        ]
+    };
+
+    const include = [
+        { model: User, attributes: ['username'] },
+        { model: Tag, through: { attributes: [] }, attributes: ['id', 'name', 'color'] }
+    ];
+
+    const { count, rows: articles } = await Article.findAndCountAll({
+        where,
+        include,
+        order: [['createdAt', 'DESC']],
+        distinct: true,
+        limit,
+        offset
+    });
+
+    const stripMarkdown = (text) => {
+        if (!text) return '';
+        return text
+            .replace(/```[\s\S]*?```/g, ' ')
+            .replace(/`[^`]*`/g, ' ')
+            .replace(/!\[[^\]]*\]\([^)]*\)/g, ' ')
+            .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
+            .replace(/^#{1,6}\s+/gm, '')
+            .replace(/^\s*[-*+]\s+/gm, '')
+            .replace(/^\s*\d+\.\s+/gm, '')
+            .replace(/^>\s?/gm, '')
+            .replace(/[*_~]{1,3}([^*_~]+)[*_~]{1,3}/g, '$1')
+            .replace(/\|.+\|/g, ' ')
+            .replace(/^---+$/gm, ' ')
+            .replace(/<[^>]*>/g, ' ')
+            .replace(/\s+/g, ' ')
+            .trim();
+    };
+
+    const extractSnippet = (text, keyword, snippetLength = 150) => {
+        const plainText = stripMarkdown(text);
+        const lowerText = plainText.toLowerCase();
+        const lowerKeyword = keyword.toLowerCase();
+        const index = lowerText.indexOf(lowerKeyword);
+
+        if (index === -1) {
+            return plainText.length > snippetLength
+                ? plainText.slice(0, snippetLength) + '...'
+                : plainText;
+        }
+
+        const halfSnippet = Math.floor(snippetLength / 2);
+        let start = Math.max(0, index - halfSnippet);
+        let end = Math.min(plainText.length, index + keyword.length + halfSnippet);
+
+        if (start > 0) start = plainText.indexOf(' ', start) !== -1 ? plainText.indexOf(' ', start) + 1 : start;
+        if (end < plainText.length) end = plainText.lastIndexOf(' ', end) !== -1 ? plainText.lastIndexOf(' ', end) : end;
+
+        let snippet = plainText.slice(start, end);
+        if (start > 0) snippet = '...' + snippet;
+        if (end < plainText.length) snippet = snippet + '...';
+
+        return snippet;
+    };
+
+    const results = articles.map(article => {
+        const data = article.toJSON();
+        const titleMatch = data.title.toLowerCase().includes(keyword.toLowerCase());
+        const contentMatch = data.content.toLowerCase().includes(keyword.toLowerCase());
+
+        let matchScore = 0;
+        if (titleMatch) matchScore += 2;
+        if (contentMatch) matchScore += 1;
+
+        return {
+            ...data,
+            snippet: extractSnippet(data.content, keyword),
+            matchScore,
+            titleMatch,
+            contentMatch,
+            tags: data.tags ? data.tags.map(t => t) : []
+        };
+    });
+
+    results.sort((a, b) => b.matchScore - a.matchScore || new Date(b.createdAt) - new Date(a.createdAt));
+
+    ctx.body = {
+        total: count,
+        page: currentPage,
+        pageSize: limit,
+        totalPages: Math.ceil(count / limit),
+        keyword,
+        results
+    };
+});
+
 module.exports = router;

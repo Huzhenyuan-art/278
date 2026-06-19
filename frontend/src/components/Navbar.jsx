@@ -1,17 +1,40 @@
-import React from 'react';
-import { Link, useNavigate, useLocation } from 'react-router-dom';
-import { LogOut, PlusSquare, Code2, Home, Settings, FileText } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Link, useNavigate, useLocation, useSearchParams } from 'react-router-dom';
+import { LogOut, PlusSquare, Code2, Home, Settings, FileText, Search, X } from 'lucide-react';
 
 const Navbar = () => {
     const navigate = useNavigate();
     const location = useLocation();
+    const [searchParams] = useSearchParams();
     const userJson = localStorage.getItem('user');
     const user = userJson ? JSON.parse(userJson) : null;
+
+    const [searchQuery, setSearchQuery] = useState('');
+    const [isSearchFocused, setIsSearchFocused] = useState(false);
+
+    useEffect(() => {
+        const q = searchParams.get('q');
+        if (location.pathname === '/search' && q) {
+            setSearchQuery(q);
+        }
+    }, [location.pathname, searchParams]);
 
     const handleLogout = () => {
         localStorage.removeItem('token');
         localStorage.removeItem('user');
         navigate('/login');
+    };
+
+    const handleSearch = (e) => {
+        e.preventDefault();
+        const query = searchQuery.trim();
+        if (query) {
+            navigate(`/search?q=${encodeURIComponent(query)}`);
+        }
+    };
+
+    const clearSearch = () => {
+        setSearchQuery('');
     };
 
     const isActive = (path) => location.pathname === path;
@@ -20,7 +43,7 @@ const Navbar = () => {
     return (
         <nav className="fixed top-0 w-full z-50 glass border-b border-gray-100/50">
             <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-                <div className="flex justify-between h-18 items-center py-2">
+                <div className="flex justify-between h-18 items-center py-2 gap-4">
                     <div className="flex items-center">
                         <Link to="/" className="flex-shrink-0 flex items-center gap-3 group no-underline">
                             <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-xl flex items-center justify-center text-white shadow-lg shadow-blue-500/20 group-hover:shadow-blue-500/40 transition-all duration-300 transform group-hover:scale-105">
@@ -31,6 +54,37 @@ const Navbar = () => {
                             </span>
                         </Link>
                     </div>
+
+                    <form onSubmit={handleSearch} className="flex-1 max-w-md mx-4">
+                        <div className={`relative transition-all duration-200 ${isSearchFocused ? 'scale-[1.02]' : ''}`}>
+                            <Search 
+                                size={18} 
+                                className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" 
+                            />
+                            <input
+                                type="text"
+                                value={searchQuery}
+                                onChange={(e) => setSearchQuery(e.target.value)}
+                                onFocus={() => setIsSearchFocused(true)}
+                                onBlur={() => setIsSearchFocused(false)}
+                                placeholder="搜索文章标题或内容..."
+                                className={`w-full pl-10 pr-9 py-2.5 rounded-xl text-sm transition-all duration-200 outline-none border ${
+                                    isSearchFocused 
+                                        ? 'bg-white border-blue-300 shadow-md shadow-blue-100/50 ring-2 ring-blue-50' 
+                                        : 'bg-gray-50/80 border-transparent hover:bg-gray-50 hover:border-gray-200'
+                                }`}
+                            />
+                            {searchQuery && (
+                                <button
+                                    type="button"
+                                    onClick={clearSearch}
+                                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 transition-colors p-0.5"
+                                >
+                                    <X size={14} />
+                                </button>
+                            )}
+                        </div>
+                    </form>
                     
                     <div className="flex items-center space-x-6">
                         <Link 

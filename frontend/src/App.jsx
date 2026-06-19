@@ -8,6 +8,7 @@ import ArticleEdit from './pages/ArticleEdit';
 import ArticleDetail from './pages/ArticleDetail';
 import AdminDashboard from './pages/AdminDashboard';
 import MyArticles from './pages/MyArticles';
+import SearchResults from './pages/SearchResults';
 
 import Layout from './components/Layout';
 
@@ -65,6 +66,7 @@ const AppContent = () => {
                 </ProtectedRoute>
             }>
                 <Route index element={<Dashboard />} />
+                <Route path="search" element={<SearchResults />} />
                 <Route path="my/articles" element={<MyArticles />} />
                 <Route path="article/create" element={<ArticleCreate />} /> 
                 <Route path="article/edit/:id" element={<ArticleEdit />} />
