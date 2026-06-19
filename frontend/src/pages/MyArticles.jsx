@@ -16,7 +16,6 @@ const TABS = [
 ];
 
 const MyArticles = () => {
-    const navigate = useNavigate();
     const [activeTab, setActiveTab] = useState('all');
     const [articles, setArticles] = useState([]);
     const [loading, setLoading] = useState(true);
