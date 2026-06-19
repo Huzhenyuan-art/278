@@ -23,6 +23,30 @@ const User = sequelize.define('user', {
   role: {
     type: DataTypes.STRING,
     defaultValue: 'user', // 'admin' or 'user'
+  },
+  nickname: {
+    type: DataTypes.STRING,
+    allowNull: true,
+  },
+  avatar: {
+    type: DataTypes.STRING,
+    allowNull: true,
+  },
+  bio: {
+    type: DataTypes.TEXT,
+    allowNull: true,
+  },
+  phone: {
+    type: DataTypes.STRING,
+    allowNull: true,
+  },
+  location: {
+    type: DataTypes.STRING,
+    allowNull: true,
+  },
+  website: {
+    type: DataTypes.STRING,
+    allowNull: true,
   }
 }, {
   tableName: 'user', // Explicit singular table name

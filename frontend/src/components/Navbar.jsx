@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useNavigate, useLocation, useSearchParams } from 'react-router-dom';
-import { LogOut, PlusSquare, Code2, Home, Settings, FileText, Search, X } from 'lucide-react';
+import { LogOut, PlusSquare, Code2, Home, Settings, FileText, Search, X, User } from 'lucide-react';
 import { HttpUtil } from '../utils/HttpUtil';
 
 const Navbar = () => {
@@ -101,6 +101,14 @@ const Navbar = () => {
                         >
                             <FileText size={18} />
                             <span>我的文章</span>
+                        </Link>
+
+                        <Link 
+                            to="/profile" 
+                            className={`hidden md:flex items-center gap-2 px-4 py-2 rounded-xl transition-all duration-200 font-medium no-underline ${isActive('/profile') ? 'bg-blue-50 text-blue-600 shadow-sm' : 'text-gray-600 hover:bg-gray-50/80 hover:text-gray-900'}`}
+                        >
+                            <User size={18} />
+                            <span>个人中心</span>
                         </Link>
 
                         <Link 
