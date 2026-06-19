@@ -1,8 +1,15 @@
 const Router = require('koa-router');
-const { Article, User, Like, Tag, ArticleTag, Notification } = require('../models');
+const { Article, User, Tag, Notification } = require('../models');
 const { authMiddleware, optionalAuthMiddleware, ROLES } = require('../utils/rbac');
 const { sanitizeMarkdown } = require('../utils/sanitize');
 const { Op } = require('sequelize');
+const {
+    attachLikeInfo,
+    attachTagsToArticles,
+    canModifyArticle,
+    stripMarkdown,
+    extractSnippet
+} = require('../utils/articleUtils');
 
 const router = new Router({
     prefix: '/article'
@@ -16,61 +23,6 @@ const ARTICLE_STATUS = {
 const VALID_STATUSES = Object.values(ARTICLE_STATUS);
 
 const isValidStatus = (status) => VALID_STATUSES.includes(status);
-
-// Attach like count and liked status to articles
-const attachLikeInfo = async (articles, userId) => {
-    const articleIds = articles.map(a => a.id);
-    const likeCounts = await Like.findAll({
-        attributes: ['articleId', [Like.sequelize.fn('COUNT', '*'), 'count']],
-        where: { articleId: { [Op.in]: articleIds } },
-        group: ['articleId']
-    });
-    const countMap = Object.fromEntries(
-        likeCounts.map(l => [l.articleId, parseInt(l.get('count'))])
-    );
-
-    let likedMap = {};
-    if (userId) {
-        const userLikes = await Like.findAll({
-            attributes: ['articleId'],
-            where: { articleId: { [Op.in]: articleIds }, userId }
-        });
-        likedMap = Object.fromEntries(
-            userLikes.map(l => [l.articleId, true])
-        );
-    }
-
-    return articles.map(article => ({
-        ...article.toJSON(),
-        likeCount: countMap[article.id] || 0,
-        liked: !!likedMap[article.id]
-    }));
-};
-
-const attachTagsToArticles = async (articles) => {
-    const articleIds = articles.map(a => a.id);
-    const articleTags = await ArticleTag.findAll({
-        where: { articleId: { [Op.in]: articleIds } },
-        include: [{
-            model: Tag,
-            attributes: ['id', 'name', 'color'],
-            required: false
-        }]
-    });
-    const tagsMap = {};
-    articleTags.forEach(at => {
-        if (!tagsMap[at.articleId]) {
-            tagsMap[at.articleId] = [];
-        }
-        if (at.tag) {
-            tagsMap[at.articleId].push(at.tag.toJSON());
-        }
-    });
-    return articles.map(article => {
-        const data = article.toJSON ? article.toJSON() : article;
-        return { ...data, tags: tagsMap[article.id] || [] };
-    });
-};
 
 // List all articles with pagination
 router.get('/', optionalAuthMiddleware, async (ctx) => {
@@ -233,7 +185,7 @@ router.patch('/:id/status', authMiddleware, async (ctx) => {
     if (!article) {
         ctx.throw(404, '文章未找到');
     }
-    if (article.authorId !== ctx.state.user.id && ctx.state.user.role !== 'admin') {
+    if (!canModifyArticle(article, ctx.state.user)) {
         ctx.throw(403, '权限不足，仅作者或管理员可修改此文的状态');
     }
 
@@ -310,7 +262,7 @@ router.put('/:id', authMiddleware, async (ctx) => {
     if (!article) {
         ctx.throw(404, '文章未找到');
     }
-    if (article.authorId !== ctx.state.user.id && ctx.state.user.role !== 'admin') {
+    if (!canModifyArticle(article, ctx.state.user)) {
         ctx.throw(403, '权限不足，仅作者或管理员可编辑此文');
     }
     const { title, content, status, tagIds, coverImage } = ctx.request.body;
@@ -360,7 +312,7 @@ router.delete('/:id', authMiddleware, async (ctx) => {
     if (!article) {
         ctx.throw(404, '文章未找到');
     }
-    if (article.authorId !== ctx.state.user.id && ctx.state.user.role !== 'admin') {
+    if (!canModifyArticle(article, ctx.state.user)) {
         ctx.throw(403, '权限不足，仅作者或管理员可删除此文');
     }
     await article.destroy();
@@ -417,51 +369,6 @@ router.get('/search/list', optionalAuthMiddleware, async (ctx) => {
         limit,
         offset
     });
-
-    const stripMarkdown = (text) => {
-        if (!text) return '';
-        return text
-            .replace(/```[\s\S]*?```/g, ' ')
-            .replace(/`[^`]*`/g, ' ')
-            .replace(/!\[[^\]]*\]\([^)]*\)/g, ' ')
-            .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
-            .replace(/^#{1,6}\s+/gm, '')
-            .replace(/^\s*[-*+]\s+/gm, '')
-            .replace(/^\s*\d+\.\s+/gm, '')
-            .replace(/^>\s?/gm, '')
-            .replace(/[*_~]{1,3}([^*_~]+)[*_~]{1,3}/g, '$1')
-            .replace(/\|.+\|/g, ' ')
-            .replace(/^---+$/gm, ' ')
-            .replace(/<[^>]*>/g, ' ')
-            .replace(/\s+/g, ' ')
-            .trim();
-    };
-
-    const extractSnippet = (text, keyword, snippetLength = 150) => {
-        const plainText = stripMarkdown(text);
-        const lowerText = plainText.toLowerCase();
-        const lowerKeyword = keyword.toLowerCase();
-        const index = lowerText.indexOf(lowerKeyword);
-
-        if (index === -1) {
-            return plainText.length > snippetLength
-                ? plainText.slice(0, snippetLength) + '...'
-                : plainText;
-        }
-
-        const halfSnippet = Math.floor(snippetLength / 2);
-        let start = Math.max(0, index - halfSnippet);
-        let end = Math.min(plainText.length, index + keyword.length + halfSnippet);
-
-        if (start > 0) start = plainText.indexOf(' ', start) !== -1 ? plainText.indexOf(' ', start) + 1 : start;
-        if (end < plainText.length) end = plainText.lastIndexOf(' ', end) !== -1 ? plainText.lastIndexOf(' ', end) : end;
-
-        let snippet = plainText.slice(start, end);
-        if (start > 0) snippet = '...' + snippet;
-        if (end < plainText.length) snippet = snippet + '...';
-
-        return snippet;
-    };
 
     const results = articles.map(article => {
         const data = article.toJSON();

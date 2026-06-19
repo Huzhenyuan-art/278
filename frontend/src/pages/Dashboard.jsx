@@ -2,6 +2,7 @@ import React, { useEffect, useState, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import { HttpUtil } from '../utils/HttpUtil';
 import { formatDate } from '../utils/dateUtils';
+import { truncateContent, getFullImageUrl, isLoggedIn } from '../utils/common';
 import { Clock, User as UserIcon, ArrowRight, MessageSquare, Sparkles, TrendingUp, Heart, Tag, X, ArrowDown, ArrowUp, Loader2 } from 'lucide-react';
 
 const Dashboard = () => {
@@ -107,32 +108,10 @@ const Dashboard = () => {
         setSortOrder(prev => prev === 'desc' ? 'asc' : 'desc');
     };
 
-    const truncateContent = (content, maxLength = 120) => {
-        if (!content) return '';
-        let plainText = content
-            .replace(/```[\s\S]*?```/g, ' ')
-            .replace(/`[^`]*`/g, ' ')
-            .replace(/!\[[^\]]*\]\([^)]*\)/g, ' ')
-            .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
-            .replace(/^#{1,6}\s+/gm, '')
-            .replace(/^\s*[-*+]\s+/gm, '')
-            .replace(/^\s*\d+\.\s+/gm, '')
-            .replace(/^>\s?/gm, '')
-            .replace(/[*_~]{1,3}([^*_~]+)[*_~]{1,3}/g, '$1')
-            .replace(/\|.+\|/g, ' ')
-            .replace(/^---+$/gm, ' ')
-            .replace(/<[^>]*>/g, ' ')
-            .replace(/\s+/g, ' ')
-            .trim();
-        if (plainText.length <= maxLength) return plainText;
-        return plainText.slice(0, maxLength) + '...';
-    };
-
     const handleLike = async (e, articleId) => {
         e.preventDefault();
         e.stopPropagation();
-        const token = localStorage.getItem('token');
-        if (!token) {
+        if (!isLoggedIn()) {
             window.location.href = '/login';
             return;
         }
@@ -155,12 +134,6 @@ const Dashboard = () => {
                 return next;
             });
         }
-    };
-
-    const getFullImageUrl = (url) => {
-        if (!url) return '';
-        if (url.startsWith('http')) return url;
-        return `/api${url}`;
     };
 
     if (loading) {

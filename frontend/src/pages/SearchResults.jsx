@@ -2,29 +2,8 @@ import React, { useEffect, useState, useMemo } from 'react';
 import { Link, useSearchParams, useNavigate } from 'react-router-dom';
 import { HttpUtil } from '../utils/HttpUtil';
 import { formatDate } from '../utils/dateUtils';
+import { highlightText, getFullImageUrl } from '../utils/common';
 import { Search, Clock, User as UserIcon, ArrowLeft, FileText, AlertCircle, Sparkles, ChevronLeft, ChevronRight } from 'lucide-react';
-
-const escapeRegExp = (string) => {
-    return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-};
-
-const highlightText = (text, keyword) => {
-    if (!text || !keyword) return text;
-    const regex = new RegExp(`(${escapeRegExp(keyword)})`, 'gi');
-    const parts = text.split(regex);
-    return parts.map((part, index) =>
-        regex.test(part) ? (
-            <mark
-                key={index}
-                className="bg-yellow-200/80 text-yellow-900 px-0.5 py-0.5 rounded font-medium"
-            >
-                {part}
-            </mark>
-        ) : (
-            <span key={index}>{part}</span>
-        )
-    );
-};
 
 const SearchResults = () => {
     const [searchParams] = useSearchParams();

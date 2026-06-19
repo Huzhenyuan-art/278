@@ -123,40 +123,46 @@ router.get('/article/:articleId', optionalAuthMiddleware, async (ctx) => {
 
     let flatAll = topComments.map(c => c.toJSON());
 
-    // Step 2: if we have top-level comments, fetch ALL descendants in one go
+    // Step 2: if we have top-level comments, fetch ALL descendants in a single query
+    // Use breadth-first search in memory to find all descendants of the top-level comments
     if (topComments.length > 0) {
-        const topIds = topComments.map(c => c.id);
+        const topIds = new Set(topComments.map(c => c.id));
 
-        // Fetch all non-root comments under these roots, regardless of level, for this article.
-        // We walk the tree by iteratively expanding descendants. Because of depth limitations,
-        // we do up to 10 iterations to be safe, but in practice this quickly converges.
-        const foundIds = new Set(topIds);
-        let currentParentIds = topIds;
-        const allDescendants = [];
+        const allArticleComments = await Comment.findAll({
+            where: {
+                articleId,
+                parentId: { [Op.not]: null }
+            },
+            include: [
+                { model: User, attributes: ['id', 'username'] },
+                { model: User, as: 'replyToUser', attributes: ['id', 'username'] },
+            ],
+        });
 
-        for (let round = 0; round < 10 && currentParentIds.length > 0; round++) {
-            const rows = await Comment.findAll({
-                where: {
-                    articleId,
-                    parentId: { [Op.in]: currentParentIds },
-                },
-                include: [
-                    { model: User, attributes: ['id', 'username'] },
-                    { model: User, as: 'replyToUser', attributes: ['id', 'username'] },
-                ],
-            });
-            const jsons = rows.map(r => r.toJSON());
-            allDescendants.push(...jsons);
-            const next = [];
-            for (const j of jsons) {
-                if (!foundIds.has(j.id)) {
-                    foundIds.add(j.id);
-                    next.push(j.id);
-                }
+        const allComments = allArticleComments.map(c => c.toJSON());
+
+        const childrenMap = new Map();
+        allComments.forEach(c => {
+            if (!childrenMap.has(c.parentId)) {
+                childrenMap.set(c.parentId, []);
             }
-            currentParentIds = next;
+            childrenMap.get(c.parentId).push(c);
+        });
+
+        const descendantIds = new Set();
+        const queue = [...topIds];
+        while (queue.length > 0) {
+            const currentId = queue.shift();
+            const children = childrenMap.get(currentId) || [];
+            children.forEach(child => {
+                if (!descendantIds.has(child.id)) {
+                    descendantIds.add(child.id);
+                    queue.push(child.id);
+                }
+            });
         }
 
+        const allDescendants = allComments.filter(c => descendantIds.has(c.id));
         flatAll = [...flatAll, ...allDescendants];
     }
 

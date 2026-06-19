@@ -2,6 +2,7 @@ import React, { useEffect, useState, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import { HttpUtil } from '../utils/HttpUtil';
 import { formatDate } from '../utils/dateUtils';
+import { truncateContent } from '../utils/common';
 import {
     User, Mail, Phone, MapPin, Link as LinkIcon, FileText,
     Edit3, Save, X, Eye, EyeOff, Clock, Heart, MessageSquare,
@@ -152,27 +153,6 @@ const Profile = () => {
                 return next;
             });
         }
-    };
-
-    const truncateContent = (content, maxLength = 80) => {
-        if (!content) return '';
-        let plainText = content
-            .replace(/```[\s\S]*?```/g, ' ')
-            .replace(/`[^`]*`/g, ' ')
-            .replace(/!\[[^\]]*\]\([^)]*\)/g, ' ')
-            .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
-            .replace(/^#{1,6}\s+/gm, '')
-            .replace(/^\s*[-*+]\s+/gm, '')
-            .replace(/^\s*\d+\.\s+/gm, '')
-            .replace(/^>\s?/gm, '')
-            .replace(/[*_~]{1,3}([^*_~]+)[*_~]{1,3}/g, '$1')
-            .replace(/\|.+\|/g, ' ')
-            .replace(/^---+$/gm, ' ')
-            .replace(/<[^>]*>/g, ' ')
-            .replace(/\s+/g, ' ')
-            .trim();
-        if (plainText.length <= maxLength) return plainText;
-        return plainText.slice(0, maxLength) + '...';
     };
 
     const cancelEdit = () => {
@@ -714,7 +694,7 @@ const Profile = () => {
                                         )}
 
                                         <p className="text-gray-500 text-sm line-clamp-2 leading-relaxed mb-3">
-                                            {truncateContent(article.content)}
+                                            {truncateContent(article.content, 80)}
                                         </p>
 
                                         <div className="flex items-center justify-between gap-3 pt-2 border-t border-gray-100/60">

@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { HttpUtil } from '../utils/HttpUtil';
 import { formatDate } from '../utils/dateUtils';
+import { getFullImageUrl, getCurrentUser, canModifyArticle, safeJsonParse } from '../utils/common';
 import { User, Calendar, ArrowLeft, Trash2, Edit, Heart, Tag } from 'lucide-react';
 import Modal from '../components/Modal';
 import CommentSection from '../components/CommentSection';
@@ -13,7 +14,7 @@ const ArticleDetail = () => {
     const [article, setArticle] = useState(null);
     const [loading, setLoading] = useState(true);
     const [isLiking, setIsLiking] = useState(false);
-    const user = JSON.parse(localStorage.getItem('user') || '{}');
+    const user = getCurrentUser() || {};
 
     const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
 
@@ -70,13 +71,7 @@ const ArticleDetail = () => {
     );
     if (!article) return <div className="text-center py-20 text-gray-500 font-medium">文章不存在</div>;
 
-    const isAuthor = user && (user.id === article.authorId || user.role === 'admin');
-
-    const getFullImageUrl = (url) => {
-        if (!url) return '';
-        if (url.startsWith('http')) return url;
-        return `/api${url}`;
-    };
+    const isAuthor = canModifyArticle(article);
 
     return (
         <div className="max-w-4xl mx-auto space-y-6">

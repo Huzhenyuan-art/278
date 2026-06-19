@@ -1,66 +1,17 @@
 const Router = require('koa-router');
-const { User, Article, Like, Comment, Tag, ArticleTag } = require('../models');
+const { User, Article, Like, Comment } = require('../models');
 const { authMiddleware } = require('../utils/rbac');
 const bcrypt = require('bcryptjs');
 const { Op } = require('sequelize');
+const {
+    attachLikeInfo,
+    attachTagsToArticles,
+    buildArticleListResponse
+} = require('../utils/articleUtils');
 
 const router = new Router({
     prefix: '/user'
 });
-
-const attachLikeInfo = async (articles, userId) => {
-    const articleIds = articles.map(a => a.id);
-    const likeCounts = await Like.findAll({
-        attributes: ['articleId', [Like.sequelize.fn('COUNT', '*'), 'count']],
-        where: { articleId: { [Op.in]: articleIds } },
-        group: ['articleId']
-    });
-    const countMap = Object.fromEntries(
-        likeCounts.map(l => [l.articleId, parseInt(l.get('count'))])
-    );
-
-    let likedMap = {};
-    if (userId) {
-        const userLikes = await Like.findAll({
-            attributes: ['articleId'],
-            where: { articleId: { [Op.in]: articleIds }, userId }
-        });
-        likedMap = Object.fromEntries(
-            userLikes.map(l => [l.articleId, true])
-        );
-    }
-
-    return articles.map(article => ({
-        ...article.toJSON(),
-        likeCount: countMap[article.id] || 0,
-        liked: !!likedMap[article.id]
-    }));
-};
-
-const attachTagsToArticles = async (articles) => {
-    const articleIds = articles.map(a => a.id);
-    const articleTags = await ArticleTag.findAll({
-        where: { articleId: { [Op.in]: articleIds } },
-        include: [{
-            model: Tag,
-            attributes: ['id', 'name', 'color'],
-            required: false
-        }]
-    });
-    const tagsMap = {};
-    articleTags.forEach(at => {
-        if (!tagsMap[at.articleId]) {
-            tagsMap[at.articleId] = [];
-        }
-        if (at.tag) {
-            tagsMap[at.articleId].push(at.tag.toJSON());
-        }
-    });
-    return articles.map(article => {
-        const data = article.toJSON ? article.toJSON() : article;
-        return { ...data, tags: tagsMap[article.id] || [] };
-    });
-};
 
 router.get('/profile', authMiddleware, async (ctx) => {
     const userId = ctx.state.user.id;
@@ -173,40 +124,44 @@ router.put('/password', authMiddleware, async (ctx) => {
 router.get('/stats', authMiddleware, async (ctx) => {
     const userId = ctx.state.user.id;
 
-    const articleCount = await Article.count({ where: { authorId: userId } });
-    const publishedArticleCount = await Article.count({ 
-        where: { authorId: userId, status: 'published' } 
-    });
-    const draftArticleCount = await Article.count({ 
-        where: { authorId: userId, status: 'draft' } 
-    });
+    const [
+        articleStats,
+        commentCount,
+        likeGivenCount,
+        userArticles
+    ] = await Promise.all([
+        Article.findAll({
+            attributes: [
+                'status',
+                [Article.sequelize.fn('COUNT', '*'), 'count']
+            ],
+            where: { authorId: userId },
+            group: ['status'],
+            raw: true
+        }),
+        Comment.count({ where: { userId, isDeleted: false } }),
+        Like.count({ where: { userId } }),
+        Article.findAll({
+            where: { authorId: userId },
+            attributes: ['id', 'content', 'status']
+        })
+    ]);
 
-    const commentCount = await Comment.count({ where: { userId, isDeleted: false } });
+    const articleCount = articleStats.reduce((sum, s) => sum + parseInt(s.count), 0);
+    const publishedArticleCount = articleStats.find(s => s.status === 'published')?.count || 0;
+    const draftArticleCount = articleStats.find(s => s.status === 'draft')?.count || 0;
 
-    const userArticles = await Article.findAll({
-        where: { authorId: userId },
-        attributes: ['id']
-    });
     const articleIds = userArticles.map(a => a.id);
-
-    const likeReceivedCount = articleIds.length > 0 
+    const likeReceivedCount = articleIds.length > 0
         ? await Like.count({ where: { articleId: { [Op.in]: articleIds } } })
         : 0;
 
-    const likeGivenCount = await Like.count({ where: { userId } });
-
-    let totalViews = 0;
     let totalWordCount = 0;
-    if (articleIds.length > 0) {
-        const articles = await Article.findAll({
-            where: { id: { [Op.in]: articleIds }, status: 'published' },
-            attributes: ['content']
-        });
-        articles.forEach(article => {
-            const words = article.content.replace(/\s/g, '').length;
-            totalWordCount += words;
-        });
-    }
+    userArticles.forEach(article => {
+        if (article.status === 'published') {
+            totalWordCount += article.content.replace(/\s/g, '').length;
+        }
+    });
 
     ctx.body = {
         articleCount,
@@ -215,7 +170,7 @@ router.get('/stats', authMiddleware, async (ctx) => {
         commentCount,
         likeReceivedCount,
         likeGivenCount,
-        totalViews,
+        totalViews: 0,
         totalWordCount
     };
 });

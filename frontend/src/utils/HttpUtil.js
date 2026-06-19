@@ -47,17 +47,17 @@ export class HttpUtil {
 
     static async parseResponse(response) {
         const contentType = response.headers.get('content-type') || '';
-        
+
         if (contentType.includes('application/json')) {
             return await response.json();
         }
-        
+
         const text = await response.text();
         if (text.trim().startsWith('<')) {
             console.warn('Server returned HTML instead of JSON:', text.substring(0, 200));
             throw new Error('服务器连接异常，请稍后重试');
         }
-        
+
         try {
             return JSON.parse(text);
         } catch {
@@ -65,9 +65,38 @@ export class HttpUtil {
         }
     }
 
+    static handleUnauthorized(data, redirectToLogin = true) {
+        const hasToken = !!this.getToken();
+        this.clearAuth();
+
+        if (hasToken) {
+            if (redirectToLogin && !window.location.pathname.includes('/login')) {
+                const currentPath = window.location.pathname + window.location.search;
+                window.location.href = `/login?redirect=${encodeURIComponent(currentPath)}`;
+            }
+            throw new Error(data.message || data.error || '登录已过期，请重新登录');
+        } else {
+            throw new Error(data.message || data.error || '用户名或密码错误');
+        }
+    }
+
+    static handleRequestError(error) {
+        console.error('API Request Error:', error);
+
+        if (error.name === 'SyntaxError' || error.message.includes('JSON')) {
+            throw new Error('服务器连接异常，请稍后重试');
+        }
+
+        if (error.message === 'Failed to fetch') {
+            throw new Error('无法连接到服务器，请检查网络');
+        }
+
+        throw error;
+    }
+
     static async request(endpoint, options = {}) {
         const token = this.getToken();
-        
+
         const headers = {
             'Content-Type': 'application/json',
             ...options.headers,
@@ -87,37 +116,16 @@ export class HttpUtil {
             const data = await this.parseResponse(response);
 
             if (response.status === 401) {
-                const hasToken = !!this.getToken();
-                this.clearAuth();
-
-                if (hasToken) {
-                    const currentPath = window.location.pathname + window.location.search;
-                    if (!window.location.pathname.includes('/login')) {
-                        window.location.href = `/login?redirect=${encodeURIComponent(currentPath)}`;
-                    }
-                    throw new Error(data.message || data.error || '登录已过期，请重新登录');
-                } else {
-                    throw new Error(data.message || data.error || '用户名或密码错误');
-                }
+                this.handleUnauthorized(data, true);
             }
-            
+
             if (!response.ok) {
                 throw new Error(data.message || data.error || '请求失败，请稍后重试');
             }
 
             return data;
         } catch (error) {
-            console.error('API Request Error:', error);
-            
-            if (error.name === 'SyntaxError' || error.message.includes('JSON')) {
-                throw new Error('服务器连接异常，请稍后重试');
-            }
-            
-            if (error.message === 'Failed to fetch') {
-                throw new Error('无法连接到服务器，请检查网络');
-            }
-            
-            throw error;
+            this.handleRequestError(error);
         }
     }
 
@@ -174,13 +182,7 @@ export class HttpUtil {
             const data = await this.parseResponse(response);
 
             if (response.status === 401) {
-                const hasToken = !!this.getToken();
-                this.clearAuth();
-                if (hasToken) {
-                    throw new Error(data.message || data.error || '登录已过期，请重新登录');
-                } else {
-                    throw new Error(data.message || data.error || '用户名或密码错误');
-                }
+                this.handleUnauthorized(data, false);
             }
 
             if (!response.ok) {
@@ -189,11 +191,7 @@ export class HttpUtil {
 
             return data;
         } catch (error) {
-            console.error('Upload Error:', error);
-            if (error.message === 'Failed to fetch') {
-                throw new Error('无法连接到服务器，请检查网络');
-            }
-            throw error;
+            this.handleRequestError(error);
         }
     }
 
