@@ -2654,3 +2654,400 @@ npm run build
 
 **文档版本**：v1.0（管理仪表板构建语法错误修复）  
 **最后更新**：2026-06-19
+
+---
+
+# 管理页面空白问题全面排查与修复指南
+
+## 文档信息
+
+| 项目 | 内容 |
+|------|------|
+| **问题编号** | FIX-012 |
+| **问题类型** | React 渲染崩溃 → 白屏（TDZ 引用错误 + JSON.parse 未捕获异常 + 无 Error Boundary） |
+| **影响范围** | 管理页面完全空白，所有功能模块和数据不可见 |
+| **发现日期** | 2026-06-19 |
+| **修复日期** | 2026-06-19 |
+| **严重程度** | 🔴 P0 — 页面完全不可用 |
+
+---
+
+## 1. 问题现象
+
+### 1.1 用户反馈
+
+管理员使用有效凭证登录后，导航至 `/admin` 路径，页面呈现完全空白状态：
+- 无任何可见内容、无导航栏、无错误提示
+- 浏览器开发者工具 Console 面板可能存在 `ReferenceError` 或 `SyntaxError`
+- 网络面板中 API 请求可能根本未发出（渲染崩溃发生在 API 调用之前）
+
+### 1.2 影响范围
+
+| 模块 | 影响 | 说明 |
+|------|------|------|
+| AdminDashboard（管理控制台） | ❌ 完全不可用 | 白屏，零内容渲染 |
+| Navbar（导航栏） | ⚠️ 可能连带崩溃 | 若 localStorage 数据异常，Navbar 也会崩溃 |
+| 其他认证页面 | ⚠️ 潜在风险 | 同一个 `JSON.parse` 风险存在于 Navbar |
+| 整站 | ⚠️ 无 Error Boundary | 任何未捕获异常均导致整棵组件树白屏 |
+
+---
+
+## 2. 诊断过程
+
+### 2.1 排查路线图
+
+```
+Step 1: 前端代码静态分析 → AdminDashboard.jsx
+Step 2: 路由与权限验证检查 → App.jsx (AdminRoute)
+Step 3: 公共组件安全性检查 → Navbar.jsx
+Step 4: 后端 API 接口验证 → admin.js
+Step 5: 依赖项与工具函数验证 → HttpUtil.js / dateUtils.js
+```
+
+### 2.2 Step 1：AdminDashboard.jsx — 发现 TDZ 致命错误
+
+**检查项**：组件渲染逻辑、数据流、错误处理
+
+**发现**：第 37-44 行的 `useEffect` 引用了 `fetchStats`、`fetchArticles`、`fetchUsers` 三个变量，但它们分别在第 46、71、110 行才用 `const ... = useCallback(...)` 声明。
+
+```javascript
+// ❌ 修复前 — 声明顺序错误
+const AdminDashboard = () => {
+    // ... 省略 useState ...
+
+    useEffect(() => {                          // 第 37 行
+        fetchStats();                          // ← 引用了尚未初始化的变量
+        if (activeTab === 'articles') {
+            fetchArticles(1);                  // ← 同上
+        } else {
+            fetchUsers();                      // ← 同上
+        }
+    }, [activeTab, fetchStats, fetchArticles, fetchUsers]);  // ← 依赖数组求值时 TDZ 报错
+
+    const fetchStats = useCallback(async () => { ... }, []);  // 第 46 行
+    const fetchArticles = useCallback(async () => { ... }, []); // 第 71 行
+    const fetchUsers = useCallback(async () => { ... }, []);   // 第 110 行
+```
+
+**崩溃机制**：
+
+JavaScript 的 `const` 声明存在**暂时性死区（Temporal Dead Zone, TDZ）**。在声明语句执行前，变量虽已存在于作用域中，但不可访问。访问处于 TDZ 的变量会抛出 `ReferenceError`。
+
+当 React 调用 `AdminDashboard()` 渲染组件时，代码从上到下执行：
+1. 第 37 行：调用 `useEffect(callback, [activeTab, fetchStats, fetchArticles, fetchUsers])`
+2. JavaScript 引擎评估依赖数组 `[activeTab, fetchStats, fetchArticles, fetchUsers]`
+3. 读取 `fetchStats` → 该变量在 TDZ 中 → **`ReferenceError: Cannot access 'fetchStats' before initialization`**
+4. 异常向上抛出，React 无 Error Boundary 捕获 → **整棵组件树卸载为空白**
+
+### 2.3 Step 2：App.jsx AdminRoute — JSON.parse 无防护
+
+**检查项**：权限验证流程、路由守卫
+
+**发现**：[App.jsx](file:///d:/Desktop/新建文件夹%20(2)/278-20260128-123520/278/frontend/src/App.jsx#L30-L39) 的 `AdminRoute` 组件在渲染阶段直接调用 `JSON.parse(userJson)` 无 try-catch：
+
+```javascript
+// ❌ 修复前
+const AdminRoute = ({ children }) => {
+    const token = HttpUtil.getToken();
+    const userJson = localStorage.getItem('user');
+    const user = userJson ? JSON.parse(userJson) : null;  // ← 若 userJson 非法 JSON 则崩溃
+    const location = useLocation();
+    ...
+};
+```
+
+**崩溃场景**：
+- localStorage 中的 `user` 值被意外篡改（如浏览器扩展注入、手动修改）
+- `JSON.stringify` 与 `JSON.parse` 不配对（如存储了非 JSON 字符串）
+- 数据迁移/缓存过期导致格式不匹配
+
+**影响**：此异常同样发生在渲染阶段，无 Error Boundary 捕获 → 白屏。
+
+### 2.4 Step 3：Navbar.jsx — 同类 JSON.parse 风险
+
+**发现**：[Navbar.jsx](file:///d:/Desktop/新建文件夹%20(2)/278-20260128-123520/278/frontend/src/components/Navbar.jsx#L10-L16) 第 10-11 行同样无保护：
+
+```javascript
+// ❌ 修复前
+const userJson = localStorage.getItem('user');
+const user = userJson ? JSON.parse(userJson) : null;  // ← 同样的崩溃风险
+```
+
+**影响**：Navbar 是所有认证页面的公共组件。若 localStorage 中 `user` 数据损坏，**所有页面**（不仅是管理页）都会白屏。
+
+### 2.5 Step 4：后端 API 接口 — 无问题
+
+经检查 `backend/routes/admin.js`：
+- `/admin/stats`：正常返回 stats 对象，catch 分支返回 `{ error }` 格式
+- `/admin/articles`：正常返回分页对象，含 `results/total/totalPages`
+- `/admin/users`：正常返回纯数组
+- `adminMiddleware`：JWT 验证 + 角色校验，逻辑正确
+
+后端接口无异常，问题完全在前端。
+
+### 2.6 Step 5：全局架构缺陷 — 无 Error Boundary
+
+经检查 `App.jsx` 整体结构：
+- `App` → `Router` → `AppContent` → `Routes`
+- 全链路无 React Error Boundary
+- 任何渲染阶段异常都会导致整棵 React 树卸载为空白 DOM
+
+---
+
+## 3. 根本原因分析
+
+### 3.1 三层崩溃链
+
+```
+Layer 1: useEffect TDZ 引用错误（必然触发）
+   → ReferenceError: Cannot access 'fetchStats' before initialization
+   → AdminDashboard 组件渲染崩溃
+
+Layer 2: JSON.parse 无 try-catch（条件触发）
+   → 当 localStorage.user 为非法 JSON 时触发
+   → AdminRoute / Navbar 渲染崩溃
+
+Layer 3: 无 Error Boundary（架构缺陷）
+   → 上述任何异常无法被捕获
+   → React 卸载整棵组件树 → 白屏
+```
+
+### 3.2 根因溯源
+
+| 根因 | 引入时间 | 说明 |
+|------|---------|------|
+| useEffect 声明顺序错误 | FIX-010 修复时 | 将 fetchStats/fetchArticles/fetchUsers 改为 useCallback 并加入 useEffect 依赖，但未调整代码位置 |
+| JSON.parse 无防护 | 初始代码 | 原始代码即未对 localStorage 数据做防御性校验 |
+| 无 Error Boundary | 初始架构 | 项目从未配置全局错误边界 |
+
+---
+
+## 4. 解决方案
+
+### 4.1 修复 1：调整 useEffect 声明顺序（消除 TDZ）
+
+**文件**：[AdminDashboard.jsx](file:///d:/Desktop/新建文件夹%20(2)/278-20260128-123520/278/frontend/src/pages/AdminDashboard.jsx#L37-L126)
+
+**修改前**：
+```javascript
+useEffect(() => { ... }, [fetchStats, fetchArticles, fetchUsers]);  // 第 37 行
+const fetchStats = useCallback(...);   // 第 46 行 ← TDZ!
+const fetchArticles = useCallback(...); // 第 71 行 ← TDZ!
+const fetchUsers = useCallback(...);    // 第 110 行 ← TDZ!
+```
+
+**修改后**：
+```javascript
+const fetchStats = useCallback(...);   // 第 37 行
+const fetchArticles = useCallback(...); // 第 62 行
+const fetchUsers = useCallback(...);    // 第 101 行
+useEffect(() => { ... }, [fetchStats, fetchArticles, fetchUsers]);  // 第 119 行 ← 在所有依赖之后
+```
+
+**原理**：将 `useEffect` 移到所有 `useCallback` 声明之后，确保依赖数组求值时所有变量已完成初始化。
+
+### 4.2 修复 2：JSON.parse 防护
+
+**文件 A**：[App.jsx](file:///d:/Desktop/新建文件夹%20(2)/278-20260128-123520/278/frontend/src/App.jsx#L30-L39) — AdminRoute
+
+**修改前**：
+```javascript
+const user = userJson ? JSON.parse(userJson) : null;
+```
+
+**修改后**：
+```javascript
+let user = null;
+try {
+    user = userJson ? JSON.parse(userJson) : null;
+} catch (e) {
+    HttpUtil.clearAuth();  // 清除损坏数据，触发重新登录
+}
+```
+
+**文件 B**：[Navbar.jsx](file:///d:/Desktop/新建文件夹%20(2)/278-20260128-123520/278/frontend/src/components/Navbar.jsx#L10-L16)
+
+同上，添加相同的 try-catch 防护。
+
+**原理**：若 localStorage 中 `user` 数据损坏，catch 分支清除所有认证信息（token + user），使用户被引导至登录页重新获取有效数据，而非崩溃白屏。
+
+### 4.3 修复 3：添加全局 Error Boundary
+
+**文件**：[App.jsx](file:///d:/Desktop/新建文件夹%20(2)/278-20260128-123520/278/frontend/src/App.jsx#L17-L58)
+
+新增 `ErrorBoundary` 类组件，实现：
+- `static getDerivedStateFromError(error)` — 捕获异常，更新状态
+- `componentDidCatch(error, errorInfo)` — 记录完整错误栈到 Console
+- 友好的降级 UI — 显示错误提示 + "刷新页面"按钮
+
+**包裹位置**：`ErrorBoundary` 包裹在 `Router` 外层，覆盖整棵组件树。
+
+```javascript
+function App() {
+    return (
+        <ErrorBoundary>
+            <Router>
+                <AppContent />
+            </Router>
+        </ErrorBoundary>
+    );
+}
+```
+
+---
+
+## 5. 验证步骤
+
+### 5.1 静态验证
+
+| # | 验证项 | 方法 | 预期结果 |
+|---|-------|------|---------|
+| 1 | IDE 语法检查 | GetDiagnostics | 返回空数组，无错误 |
+| 2 | 构建验证 | `npm run build` | 构建成功，退出码 0 |
+| 3 | 代码顺序检查 | 阅读 AdminDashboard.jsx | useEffect 在所有 useCallback 之后 |
+
+### 5.2 运行时验证
+
+| # | 场景 | 操作步骤 | 预期结果 |
+|---|------|---------|---------|
+| 1 | 管理页正常渲染 | admin 登录 → /admin | 完整显示统计卡片 + 文章/用户管理 |
+| 2 | localStorage user 损坏 | DevTools → Application → localStorage → 修改 user 为 `abc` | 自动清除认证，跳转登录页，不白屏 |
+| 3 | localStorage user 为空 | 删除 localStorage 中的 user 键 | 跳转登录页，不白屏 |
+| 4 | API 返回错误格式 | 拦截 /admin/stats 返回 `{ error: 'test' }` | 显示统计卡片（全 0），不崩溃 |
+| 5 | API 网络错误 | 断网后访问 /admin | 显示错误提示，不白屏 |
+| 6 | 渲染异常兜底 | 故意在组件中抛出异常 | Error Boundary 捕获，显示友好错误页 |
+
+### 5.3 边界场景验证
+
+| # | 场景 | 预期结果 |
+|---|------|---------|
+| 1 | users 为 null/undefined | filteredUsers 回退 `[]`，显示"暂无用户" |
+| 2 | articles 为空数组 | 显示"暂无文章"空状态 |
+| 3 | stats 接口超时 | loading 完成后显示默认值（全 0） |
+| 4 | token 过期 | 自动跳转登录页 |
+| 5 | 非管理员访问 /admin | 重定向至首页 |
+
+---
+
+## 6. 预防措施
+
+### 6.1 React Hooks 声明顺序规范
+
+**强制规则**：在函数组件中，`useEffect` 必须声明在其依赖项之后。
+
+```
+✅ 正确顺序：
+  1. useState
+  2. useCallback / useMemo
+  3. useEffect（引用上面的 callback/memo）
+  4. 事件处理函数
+  5. 计算派生值
+  6. 条件渲染 / return JSX
+
+❌ 错误顺序：
+  1. useState
+  2. useEffect（引用尚未声明的 callback）  ← TDZ!
+  3. useCallback
+```
+
+**ESLint 规则**：启用 `react-hooks/exhaustive-deps` 可检测依赖项完整性，但无法检测 TDZ 问题。需在 Code Review 中额外关注。
+
+### 6.2 localStorage 数据防护规范
+
+所有从 `localStorage` / `sessionStorage` 读取并 `JSON.parse` 的代码，必须包裹 try-catch：
+
+```javascript
+// ✅ 推荐模式
+let user = null;
+try {
+    const raw = localStorage.getItem('user');
+    user = raw ? JSON.parse(raw) : null;
+} catch (e) {
+    localStorage.removeItem('user');
+}
+
+// ❌ 危险模式
+const user = JSON.parse(localStorage.getItem('user'));
+```
+
+### 6.3 Error Boundary 必备规范
+
+1. **全局 Error Boundary**：应用根组件必须包裹 `ErrorBoundary`
+2. **关键路由级 Error Boundary**：对复杂页面（如 AdminDashboard）可额外包裹局部 ErrorBoundary，隔离崩溃范围
+3. **错误上报**：`componentDidCatch` 中应接入错误监控服务（如 Sentry）
+
+### 6.4 代码审查 Checklist
+
+- [ ] useEffect 的所有依赖项是否在 useEffect 之前声明？
+- [ ] 所有 `JSON.parse` 是否包裹在 try-catch 中？
+- [ ] 应用是否配置了全局 ErrorBoundary？
+- [ ] 函数组件中是否存在 TDZ 风险（const 声明前引用）？
+- [ ] localStorage 数据读取是否有防御性处理？
+- [ ] 渲染阶段的异常是否有兜底方案？
+
+### 6.5 工具链加固
+
+| 措施 | 说明 |
+|------|------|
+| **ESLint `no-use-before-define`** | 检测 TDZ 引用，但默认不检查函数组件内的 `const`，需配置 `"nofunc"` 模式并配合自定义规则 |
+| **TypeScript 严格模式** | `strict: true` 下编译器会报告块作用域变量在声明前使用 |
+| **CI 构建门禁** | PR 合并前强制 `npm run build`，构建失败阻断合并 |
+| **Pre-commit Hook** | `husky` + `lint-staged`，在提交前自动运行 ESLint |
+
+---
+
+## 7. 相关知识
+
+### 7.1 JavaScript 暂时性死区（TDZ）
+
+```javascript
+{
+    console.log(x);  // ReferenceError: Cannot access 'x' before initialization
+    const x = 42;
+}
+```
+
+`const` 和 `let` 声明的变量在块作用域内存在 TDZ：
+- 从块开始到声明语句之间，变量不可访问
+- 访问会抛出 `ReferenceError`（不是 `undefined`，不是 `TypeError`）
+- `var` 不受 TDZ 影响（会被提升并初始化为 `undefined`）
+
+### 7.2 React Error Boundary 限制
+
+Error Boundary 仅能捕获**子组件**的以下错误：
+- 渲染期间的异常
+- 生命周期方法中的异常
+- 子组件构造函数中的异常
+
+**不能捕获**：
+- 事件处理函数中的异常（需自行 try-catch）
+- 异步代码中的异常（setTimeout / fetch 等）
+- 服务端渲染异常
+- Error Boundary 自身抛出的异常
+
+### 7.3 React 白屏的常见触发模式
+
+| 模式 | 触发条件 | 典型错误 |
+|------|---------|---------|
+| 属性访问异常 | `null.foo` / `undefined.bar` | `TypeError: Cannot read property of null` |
+| TDZ 引用 | `const` 声明前访问 | `ReferenceError: Cannot access 'x' before initialization` |
+| 非函数调用 | `notAFunction()` | `TypeError: xxx is not a function` |
+| JSON 解析失败 | `JSON.parse('invalid')` | `SyntaxError: Unexpected token` |
+| 对象解构异常 | 解构 null/undefined | `TypeError: Cannot destructure property` |
+| 数组方法调用 | `undefined.map(...)` | `TypeError: Cannot read property 'map' of undefined` |
+
+---
+
+## 8. 修改文件清单
+
+| 文件 | 修改类型 | 说明 |
+|------|----------|------|
+| `frontend/src/pages/AdminDashboard.jsx` | 🔧 修复 | 将 useEffect 移至 useCallback 声明之后，消除 TDZ |
+| `frontend/src/App.jsx` | 🔧 修复 + ✨ 新增 | AdminRoute JSON.parse 加 try-catch；新增 ErrorBoundary 组件 |
+| `frontend/src/components/Navbar.jsx` | 🔧 修复 | JSON.parse 加 try-catch |
+| `FIX_GUIDE.md` | 📝 文档 | 追加本次 FIX-012 记录 |
+
+---
+
+**文档版本**：v1.0（管理页面空白问题全面排查与修复）  
+**最后更新**：2026-06-19

@@ -8,7 +8,12 @@ const Navbar = () => {
     const location = useLocation();
     const [searchParams] = useSearchParams();
     const userJson = localStorage.getItem('user');
-    const user = userJson ? JSON.parse(userJson) : null;
+    let user = null;
+    try {
+        user = userJson ? JSON.parse(userJson) : null;
+    } catch (e) {
+        HttpUtil.clearAuth();
+    }
 
     const [searchQuery, setSearchQuery] = useState('');
     const [isSearchFocused, setIsSearchFocused] = useState(false);

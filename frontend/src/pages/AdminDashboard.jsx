@@ -34,15 +34,6 @@ const AdminDashboard = () => {
     const [stats, setStats] = useState(null);
     const [statsLoading, setStatsLoading] = useState(true);
 
-    useEffect(() => {
-        fetchStats();
-        if (activeTab === 'articles') {
-            fetchArticles(1);
-        } else {
-            fetchUsers();
-        }
-    }, [activeTab, fetchStats, fetchArticles, fetchUsers]);
-
     const fetchStats = useCallback(async () => {
         setStatsLoading(true);
         try {
@@ -124,6 +115,15 @@ const AdminDashboard = () => {
             setUsersLoading(false);
         }
     }, []);
+
+    useEffect(() => {
+        fetchStats();
+        if (activeTab === 'articles') {
+            fetchArticles(1);
+        } else {
+            fetchUsers();
+        }
+    }, [activeTab, fetchStats, fetchArticles, fetchUsers]);
 
     const handleDeleteArticle = async (articleId, e) => {
         e.stopPropagation();
