@@ -47,12 +47,19 @@ export class HttpUtil {
             const data = await this.parseResponse(response);
 
             if (response.status === 401) {
+                const hasToken = !!this.getToken();
                 localStorage.removeItem('token');
                 localStorage.removeItem('user');
-                if (!window.location.pathname.includes('/login')) {
-                    window.location.href = '/login';
+
+                if (hasToken) {
+                    const currentPath = window.location.pathname + window.location.search;
+                    if (!window.location.pathname.includes('/login')) {
+                        window.location.href = `/login?redirect=${encodeURIComponent(currentPath)}`;
+                    }
+                    throw new Error(data.message || data.error || '登录已过期，请重新登录');
+                } else {
+                    throw new Error(data.message || data.error || '用户名或密码错误');
                 }
-                throw new Error(data.message || data.error || '用户名或密码错误');
             }
             
             if (!response.ok) {

@@ -1,11 +1,12 @@
 import React, { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { HttpUtil } from '../utils/HttpUtil';
 import { authStyles } from './AuthStyles';
 import { Code2, ArrowRight, AlertCircle, Sparkles, Zap, ShieldCheck, Globe } from 'lucide-react';
 
 const Login = () => {
     const navigate = useNavigate();
+    const [searchParams] = useSearchParams();
     const [formData, setFormData] = useState({ username: '', password: '' });
     const [fieldErrors, setFieldErrors] = useState({ username: '', password: '' });
     const [error, setError] = useState('');
@@ -72,7 +73,8 @@ const Login = () => {
             const res = await HttpUtil.post('/auth/login', formData);
             localStorage.setItem('token', res.token);
             localStorage.setItem('user', JSON.stringify(res.user));
-            navigate('/');
+            const redirect = searchParams.get('redirect') || '/';
+            navigate(redirect);
         } catch (err) {
             const message = err.message || '用户名或密码错误';
             if (message === '用户名和密码不能为空') {
