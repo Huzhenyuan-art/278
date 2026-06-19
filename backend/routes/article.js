@@ -104,16 +104,12 @@ router.get('/', optionalAuthMiddleware, async (ctx) => {
     
     let where = {};
     if (userId) {
-        if (ctx.state.user?.role === 'admin') {
-            where = {};
-        } else {
-            where = {
-                [Op.or]: [
-                    { status: 'published' },
-                    { status: 'draft', authorId: userId }
-                ]
-            };
-        }
+        where = {
+            [Op.or]: [
+                { status: 'published' },
+                { status: 'draft', authorId: userId }
+            ]
+        };
     } else {
         where = { status: 'published' };
     }
@@ -160,7 +156,7 @@ router.get('/:id', optionalAuthMiddleware, async (ctx) => {
         ctx.throw(404, '文章未找到');
     }
     const userId = ctx.state.user?.id;
-    if (article.status === 'draft' && article.authorId !== userId && ctx.state.user?.role !== 'admin') {
+    if (article.status === 'draft' && article.authorId !== userId) {
         ctx.throw(404, '文章未找到');
     }
     const [result] = await attachLikeInfo([article], userId);
