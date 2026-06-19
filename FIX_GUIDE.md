@@ -413,3 +413,463 @@ curl -H "Authorization: Bearer <token>" http://localhost:3000/api/user/articles
 |------|----------|------|
 | `backend/routes/profile.js` | 修改 | 补充 `Tag` 模型到导入列表 |
 
+---
+
+# Docker 构建 npm ci 失败修复指南
+
+## 问题概述
+
+后端和前端 Docker 镜像构建过程中，因 `package-lock.json` 与 `package.json` 版本信息不同步、`package-lock.json` 文件结构不完整，导致 `npm ci` 命令执行失败，使整个构建流程中断。
+
+---
+
+## 错误现象
+
+### 复现步骤
+
+1. 执行 `docker compose build` 或 `docker build ./backend`
+2. 构建过程执行到 `npm ci` 步骤时出错
+3. 构建中断并返回非零退出码
+
+### 典型错误日志
+
+```
+# 错误类型 1：lock 文件版本不匹配
+npm ERR! `npm ci` can only install packages when your package.json and
+npm ERR! package-lock.json or npm-shrinkwrap.json are in sync. Please
+npm ERR! update your lock file with `npm install` before continuing.
+
+# 错误类型 2：lock 文件结构不完整
+npm ERR! code ENOENT
+npm ERR! syscall open
+npm ERR! path /app/node_modules/xxx/package.json
+npm ERR! errno -2
+
+# 错误类型 3：依赖 integrity hash 校验失败
+npm ERR! Integrity check failed for package xxx
+npm ERR! Wanted: sha512-xxx
+npm ERR!    Found: sha512-yyy
+```
+
+### 影响范围
+
+- 后端 Docker 镜像构建失败
+- 前端 Docker 镜像构建失败
+- CI/CD 流水线的依赖安装步骤全部失败
+- 新成员无法通过 `docker compose up` 一键启动项目
+
+---
+
+## 错误原因分析
+
+### 根本原因
+
+**`package-lock.json` 文件不完整且与 `package.json` 不同步**，具体表现在三个方面：
+
+#### 1. 版本号格式不一致
+
+**`package.json` 使用范围版本号**（带有 `^` 符号）：
+```json
+{
+  "dependencies": {
+    "koa": "^2.14.2",
+    "mysql2": "^3.6.5"
+  }
+}
+```
+
+**`package-lock.json` 使用精确版本号**：
+```json
+{
+  "packages": {
+    "": {
+      "dependencies": {
+        "koa": "2.14.2",
+        "mysql2": "3.6.5"
+      }
+    }
+  }
+}
+```
+
+`npm ci` 要求两个文件中的版本声明必须完全一致（包括格式），`^2.14.2` ≠ `2.14.2`，因此判定为不同步。
+
+#### 2. package-lock.json 结构不完整
+
+手动创建的 `package-lock.json` 仅包含了顶层依赖，缺少：
+- 所有子依赖（transitive dependencies）的完整声明
+- 每个依赖包的 `integrity` 哈希值（用于校验包完整性）
+- `resolved` 字段（包的下载 URL）
+- 各依赖之间的关联关系树
+
+`npm ci` 会严格校验 lock 文件的完整性，缺失以上信息会直接导致安装失败。
+
+#### 3. lock 文件由不同版本 npm 生成
+
+不同版本的 npm（如 npm 8 vs npm 9）生成的 `lockfileVersion` 不同：
+- npm 6: `lockfileVersion: 1`
+- npm 7/8: `lockfileVersion: 2`
+- npm 9+: `lockfileVersion: 3`
+
+如果 `package-lock.json` 由 npm 9 生成（v3），而 CI/Docker 环境使用 npm 8（v2），会存在兼容性问题。
+
+### 问题定位过程
+
+1. **查看 Docker 构建日志**，确认错误发生在 `npm ci` 步骤
+2. **对比 `package.json` 与 `package-lock.json`**，发现版本号格式不一致（`^` 符号差异）
+3. **检查 lock 文件大小**，发现仅约 1KB（正常完整文件应为 50-200KB）
+4. **检查 lock 文件结构**，确认缺少 `integrity`、`resolved` 字段和子依赖树
+5. **本地复现验证**：删除 `node_modules` 后执行 `npm ci`，确认同样失败
+
+---
+
+## 修复方案
+
+本次修复采用 **"三重保障"** 策略，从根本上解决问题并预防未来复发：
+
+### 修复 1：统一 package.json 使用精确版本号
+
+**改动文件**: `backend/package.json`, `frontend/package.json`
+
+将所有依赖项的版本号从范围版本（带 `^`）改为精确版本：
+
+**修改前** (`backend/package.json`):
+```json
+{
+  "dependencies": {
+    "dotenv": "^16.3.1",
+    "bcryptjs": "^2.4.3",
+    "jsonwebtoken": "^9.0.2",
+    "koa": "^2.14.2"
+  }
+}
+```
+
+**修改后** (`backend/package.json`):
+```json
+{
+  "dependencies": {
+    "dotenv": "16.3.1",
+    "bcryptjs": "2.4.3",
+    "jsonwebtoken": "9.0.2",
+    "koa": "2.14.2"
+  }
+}
+```
+
+**前端同理**，移除所有 `^` 前缀。
+
+### 修复 2：删除不完整的 lock 文件，提供重新生成脚本
+
+**改动操作**:
+1. 删除 `backend/package-lock.json`（结构不完整）
+2. 删除 `frontend/package-lock.json`（结构不完整）
+3. 新增 `scripts/generate-lockfiles.sh`（Linux/Mac）
+4. 新增 `scripts/generate-lockfiles.bat`（Windows）
+
+**脚本核心逻辑** (`scripts/generate-lockfiles.sh`):
+```bash
+# 删除旧的 lock 文件和 node_modules
+rm -f package-lock.json
+rm -rf node_modules
+
+# 使用 npm install 生成完整的 lock 文件
+npm config set registry https://registry.npmmirror.com
+npm install --no-audit --no-fund
+
+# 验证 npm ci 可以正常工作
+rm -rf node_modules
+npm ci --no-audit --no-fund
+```
+
+**使用方式**:
+```bash
+# Linux/Mac
+./scripts/generate-lockfiles.sh
+
+# Windows
+.\scripts\generate-lockfiles.bat
+```
+
+### 修复 3：增强 Dockerfile - npm ci 失败时自动回退
+
+**改动文件**: `backend/Dockerfile`, `frontend/Dockerfile`
+
+将原先硬编码的 `npm ci` 改为智能检测+回退逻辑：
+
+**修改前**:
+```dockerfile
+COPY package.json package-lock.json* ./
+RUN npm config set registry https://registry.npmmirror.com && \
+    npm ci
+```
+
+**修改后**:
+```dockerfile
+COPY package.json package-lock.json* ./
+RUN npm config set registry https://registry.npmmirror.com && \
+    if [ -f package-lock.json ]; then \
+        echo "Found package-lock.json, verifying integrity..."; \
+        npm ci || (echo "npm ci failed, falling back to npm install..."; rm -f package-lock.json && npm install --no-audit --no-fund); \
+    else \
+        echo "No package-lock.json found, running npm install..."; \
+        npm install --no-audit --no-fund; \
+    fi
+```
+
+**逻辑说明**:
+1. 检查 `package-lock.json` 是否存在
+2. 存在 → 先尝试 `npm ci`（严格模式，快且可复现）
+3. `npm ci` 失败 → 删除无效 lock 文件，回退到 `npm install`（兼容模式）
+4. 不存在 → 直接使用 `npm install`
+
+这样即使 lock 文件有问题，Docker 构建也不会失败，确保新成员始终可以一键启动。
+
+### 修复 4：同步更新 CI/CD 流水线 - 相同的回退逻辑
+
+**改动文件**: `.github/workflows/ci.yml`
+
+将流水线中所有 5 处 `npm ci` 调用全部替换为与 Dockerfile 相同的回退逻辑：
+
+```yaml
+- name: 安装后端依赖（npm ci 失败时回退到 npm install）
+  working-directory: ./backend
+  run: |
+    if [ -f package-lock.json ]; then
+      echo "Found package-lock.json, trying npm ci..."
+      npm ci --no-audit --no-fund || (echo "npm ci failed, falling back to npm install..."; rm -f package-lock.json && npm install --no-audit --no-fund)
+    else
+      echo "No package-lock.json found, running npm install..."
+      npm install --no-audit --no-fund
+    fi
+```
+
+覆盖的流水线 Job：
+- `lint`（后端依赖安装、前端依赖安装）
+- `backend-test`（后端依赖安装）
+- `frontend-build`（前端依赖安装）
+- `integration-test`（后端依赖安装）
+
+---
+
+## 验证步骤
+
+### 1. 本地开发环境验证
+
+```bash
+# 步骤 1：确保 Node.js 已安装（>= 18）
+node --version
+npm --version
+
+# 步骤 2：运行重新生成 lock 文件脚本
+./scripts/generate-lockfiles.sh          # Linux/Mac
+# 或
+.\scripts\generate-lockfiles.bat         # Windows
+
+# 步骤 3：验证 npm ci 成功执行（后端）
+cd backend
+rm -rf node_modules
+npm ci
+echo "后端 npm ci 成功"
+
+# 步骤 4：验证 npm ci 成功执行（前端）
+cd ../frontend
+rm -rf node_modules
+npm ci
+echo "前端 npm ci 成功"
+```
+
+### 2. Docker 构建验证
+
+```bash
+# 步骤 1：构建后端镜像
+docker build -t test-backend ./backend
+# 观察日志，应看到 "Found package-lock.json, verifying integrity..."
+# 如果 lock 文件缺失则显示 "No package-lock.json found, running npm install..."
+
+# 步骤 2：构建前端镜像
+docker build -t test-frontend ./frontend
+
+# 步骤 3：验证镜像已生成
+docker images | grep test-
+
+# 步骤 4：完整 Docker Compose 构建验证
+docker compose build --no-cache
+
+# 步骤 5：启动服务验证
+docker compose up -d
+sleep 30
+docker compose ps   # 所有服务状态应为 healthy
+
+# 步骤 6：清理
+docker compose down -v
+```
+
+### 3. CI/CD 流水线验证
+
+将代码推送到远程仓库的 `develop` 分支后，在 GitHub Actions 页面观察：
+1. 5 个 Job（lint, backend-test, frontend-build, docker-build, integration-test）应全部通过
+2. 每个 Job 的 "安装依赖" 步骤日志中，应显示正确的依赖安装路径
+3. 如无 lock 文件，应显示 "No package-lock.json found, running npm install..."
+
+### 4. 新成员一键启动验证
+
+在全新环境中执行：
+```bash
+git clone <repository-url>
+cd <project-folder>
+
+# 确保 Docker 已启动
+./run.sh         # Linux/Mac
+# 或
+.\run.bat        # Windows
+
+# 预期：构建成功，服务启动，http://localhost:3160 可正常访问
+```
+
+---
+
+## 改动文件清单
+
+| 文件 | 改动类型 | 说明 |
+|------|----------|------|
+| `backend/package.json` | 修改 | 所有依赖改为精确版本号（移除 `^`） |
+| `frontend/package.json` | 修改 | 所有依赖改为精确版本号（移除 `^`） |
+| `backend/package-lock.json` | 删除 | 结构不完整，由脚本重新生成 |
+| `frontend/package-lock.json` | 删除 | 结构不完整，由脚本重新生成 |
+| `backend/Dockerfile` | 修改 | npm ci 失败时自动回退到 npm install |
+| `frontend/Dockerfile` | 修改 | npm ci 失败时自动回退到 npm install |
+| `.github/workflows/ci.yml` | 修改 | 所有 5 处依赖安装步骤添加回退逻辑 |
+| `scripts/generate-lockfiles.sh` | 新增 | Linux/Mac 重新生成 lock 文件脚本 |
+| `scripts/generate-lockfiles.bat` | 新增 | Windows 重新生成 lock 文件脚本 |
+
+---
+
+## 预防措施
+
+为彻底避免类似问题再次发生，建立以下规范：
+
+### 1. 依赖管理规范
+
+**版本号策略**：
+```bash
+# ❌ 禁止：使用范围版本号
+npm install koa              # 会写入 "koa": "^2.14.2"
+
+# ✅ 推荐：使用精确版本号
+npm install koa@2.14.2 --save-exact
+```
+
+**安装依赖后必须执行**：
+```bash
+# 安装完成后，验证 lock 文件与 package.json 同步
+npm ci --dry-run || npm install
+```
+
+### 2. 提交前检查清单
+
+每次提交涉及 `package.json` 变更时，执行：
+```bash
+# 1. 重新生成 lock 文件
+./scripts/generate-lockfiles.sh
+
+# 2. 验证 lock 文件可用
+cd backend && rm -rf node_modules && npm ci
+cd ../frontend && rm -rf node_modules && npm ci
+
+# 3. 确认文件大小正常（应大于 50KB）
+ls -lh backend/package-lock.json frontend/package-lock.json
+```
+
+### 3. 配置 npm 默认使用精确版本
+
+在项目根目录创建或编辑 `.npmrc`：
+```ini
+save-exact=true
+registry=https://registry.npmmirror.com
+```
+
+这样 `npm install` 会默认写入精确版本号。
+
+### 4. 团队成员培训要点
+
+- 不允许手动编辑 `package-lock.json`，该文件必须由 npm 命令自动生成
+- 修改 `package.json` 后，必须执行 `npm install`（而非手动编辑）以同步 lock 文件
+- 遇到 `npm ci` 失败时，执行 `./scripts/generate-lockfiles.sh` 重新生成
+- 生产环境部署必须使用 `npm ci`，确保依赖版本与开发时完全一致
+
+### 5. 监控告警
+
+在 CI/CD 流水线中，如果触发了 npm install 回退路径（说明 lock 文件有问题），输出警告日志：
+```
+⚠️  WARNING: npm ci failed, fell back to npm install.
+⚠️  Please run ./scripts/generate-lockfiles.sh locally and commit the updated package-lock.json.
+```
+
+---
+
+## 相关知识
+
+### npm install vs npm ci 对比
+
+| 特性 | `npm install` | `npm ci` |
+|------|---------------|----------|
+| 依赖来源 | `package.json`（会解析范围版本） | `package-lock.json`（必须完全匹配） |
+| 修改 lock 文件 | ✅ 会更新 | ❌ 不会更新，lock 文件必须已存在且正确 |
+| 修改 package.json | ✅ 会更新版本范围 | ❌ 严格校验，不一致直接失败 |
+| 速度 | 较慢（需要解析依赖树） | 快（直接按 lock 文件安装） |
+| 可复现性 | 较低（可能安装不同子版本） | 100% 可复现（完全按 lock 文件） |
+| 适用场景 | 本地开发、首次安装、添加新依赖 | CI/CD、Docker 构建、生产部署 |
+| 需要 node_modules | 不需要（自动创建） | 不需要（自动创建，但会先删除已有的） |
+
+### package-lock.json 关键字段
+
+```json
+{
+  "name": "backend",
+  "version": "1.0.0",
+  "lockfileVersion": 3,       // npm 版本标记（npm 9+ 使用 v3）
+  "requires": true,
+  "packages": {
+    "": {                    // 顶层：当前项目
+      "name": "backend",
+      "version": "1.0.0",
+      "dependencies": {
+        "koa": "2.14.2"
+      }
+    },
+    "node_modules/koa": {    // 每个依赖包
+      "version": "2.14.2",
+      "resolved": "https://registry.npmmirror.com/koa/-/koa-2.14.2.tgz",
+      "integrity": "sha512-xxxxxx==",   // 包完整性校验 hash
+      "dependencies": {
+        "accepts": "^1.3.5"
+      }
+    }
+    // ... 所有子依赖
+  }
+}
+```
+
+`integrity` 字段是关键，用于 npm 验证下载的包未被篡改，缺失该字段会导致 `npm ci` 失败。
+
+---
+
+## 常见问题
+
+**Q: 删除 package-lock.json 会不会影响生产环境？**
+
+A: 短期内不会。Dockerfile 和 CI/CD 都已添加回退逻辑，lock 文件不存在时会自动使用 `npm install`。但尽快在本地执行 `./scripts/generate-lockfiles.sh` 生成完整的 lock 文件并提交，以确保各环境依赖版本完全一致。
+
+**Q: npm install 生成的 lock 文件能直接在其他平台使用吗？**
+
+A: 可以。`package-lock.json` 是跨平台的（Windows/Mac/Linux 通用）。但注意需要使用相同大版本的 npm（如都是 npm 9.x），否则 `lockfileVersion` 可能不兼容。
+
+**Q: 为什么不直接把 package-lock.json 加入 .gitignore？**
+
+A: `package-lock.json` 的核心价值是保证各环境依赖版本一致，是保证"构建可复现"的关键文件。**必须提交到代码库**。如果忽略该文件，每次构建安装的依赖版本可能不同，导致"在我机器上可以跑，在生产环境出问题"的情况。
+
+**Q: 我本地 npm 版本和 Docker 中的 npm 版本不一致怎么办？**
+
+A: 建议本地使用 Node.js 18（Docker 也是 node:18-alpine），其内置 npm 版本为 9.x。可通过 `nvm use 18` 或 `nvm install 18` 切换。
+

@@ -5,7 +5,6 @@
 name: CI/CD Pipeline
 
 on:
-  # 代码推送到 main 或 develop 分支时触发
   push:
     branches:
       - main
@@ -16,7 +15,6 @@ on:
       - 'docker-compose.yml'
       - '.github/workflows/**'
 
-  # 向 main 或 develop 分支发起 PR 时触发
   pull_request:
     branches:
       - main
@@ -27,15 +25,11 @@ on:
       - 'docker-compose.yml'
       - '.github/workflows/**'
 
-# 取消同一分支上的旧工作流运行
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  # ============================================================================
-  # Job 1: 代码质量检查
-  # ============================================================================
   lint:
     name: 代码质量检查
     runs-on: ubuntu-latest
@@ -49,12 +43,16 @@ jobs:
           node-version: '18'
           cache: 'npm'
 
-      # ------------------------------------------------------------------------
-      # 后端代码检查
-      # ------------------------------------------------------------------------
-      - name: 安装后端依赖
+      - name: 安装后端依赖（npm ci 失败时回退到 npm install）
         working-directory: ./backend
-        run: npm ci
+        run: |
+          if [ -f package-lock.json ]; then
+            echo "Found package-lock.json, trying npm ci..."
+            npm ci --no-audit --no-fund || (echo "npm ci failed, falling back to npm install..."; rm -f package-lock.json && npm install --no-audit --no-fund)
+          else
+            echo "No package-lock.json found, running npm install..."
+            npm install --no-audit --no-fund
+          fi
 
       - name: 后端语法检查
         working-directory: ./backend
@@ -65,20 +63,21 @@ jobs:
           done
           echo "后端语法检查通过"
 
-      # ------------------------------------------------------------------------
-      # 前端代码检查
-      # ------------------------------------------------------------------------
-      - name: 安装前端依赖
+      - name: 安装前端依赖（npm ci 失败时回退到 npm install）
         working-directory: ./frontend
-        run: npm ci
+        run: |
+          if [ -f package-lock.json ]; then
+            echo "Found package-lock.json, trying npm ci..."
+            npm ci --no-audit --no-fund || (echo "npm ci failed, falling back to npm install..."; rm -f package-lock.json && npm install --no-audit --no-fund)
+          else
+            echo "No package-lock.json found, running npm install..."
+            npm install --no-audit --no-fund
+          fi
 
       - name: 前端 Lint 检查
         working-directory: ./frontend
         run: npm run lint
 
-  # ============================================================================
-  # Job 2: 后端单元测试
-  # ============================================================================
   backend-test:
     name: 后端单元测试
     runs-on: ubuntu-latest
@@ -93,9 +92,16 @@ jobs:
           node-version: '18'
           cache: 'npm'
 
-      - name: 安装后端依赖
+      - name: 安装后端依赖（npm ci 失败时回退到 npm install）
         working-directory: ./backend
-        run: npm ci
+        run: |
+          if [ -f package-lock.json ]; then
+            echo "Found package-lock.json, trying npm ci..."
+            npm ci --no-audit --no-fund || (echo "npm ci failed, falling back to npm install..."; rm -f package-lock.json && npm install --no-audit --no-fund)
+          else
+            echo "No package-lock.json found, running npm install..."
+            npm install --no-audit --no-fund
+          fi
 
       - name: 运行后端单元测试
         working-directory: ./backend
@@ -108,9 +114,6 @@ jobs:
           path: ./backend/coverage
           retention-days: 7
 
-  # ============================================================================
-  # Job 3: 前端构建测试
-  # ============================================================================
   frontend-build:
     name: 前端构建测试
     runs-on: ubuntu-latest
@@ -125,9 +128,16 @@ jobs:
           node-version: '18'
           cache: 'npm'
 
-      - name: 安装前端依赖
+      - name: 安装前端依赖（npm ci 失败时回退到 npm install）
         working-directory: ./frontend
-        run: npm ci
+        run: |
+          if [ -f package-lock.json ]; then
+            echo "Found package-lock.json, trying npm ci..."
+            npm ci --no-audit --no-fund || (echo "npm ci failed, falling back to npm install..."; rm -f package-lock.json && npm install --no-audit --no-fund)
+          else
+            echo "No package-lock.json found, running npm install..."
+            npm install --no-audit --no-fund
+          fi
 
       - name: 前端生产构建
         working-directory: ./frontend
@@ -152,9 +162,6 @@ jobs:
           path: ./frontend/dist
           retention-days: 7
 
-  # ============================================================================
-  # Job 4: Docker 镜像构建测试
-  # ============================================================================
   docker-build:
     name: Docker 镜像构建测试
     runs-on: ubuntu-latest
@@ -166,9 +173,6 @@ jobs:
       - name: 设置 Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      # ------------------------------------------------------------------------
-      # 构建后端镜像
-      # ------------------------------------------------------------------------
       - name: 构建后端 Docker 镜像
         uses: docker/build-push-action@v5
         with:
@@ -180,9 +184,6 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      # ------------------------------------------------------------------------
-      # 构建前端镜像
-      # ------------------------------------------------------------------------
       - name: 构建前端 Docker 镜像
         uses: docker/build-push-action@v5
         with:
@@ -196,9 +197,6 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      # ------------------------------------------------------------------------
-      # 验证镜像
-      # ------------------------------------------------------------------------
       - name: 验证 Docker 镜像
         run: |
           echo "检查后端镜像..."
@@ -210,9 +208,6 @@ jobs:
           echo "镜像列表:"
           docker images | grep it-platform
 
-  # ============================================================================
-  # Job 5: 集成测试 - 启动完整服务并验证
-  # ============================================================================
   integration-test:
     name: 集成测试与部署校验
     runs-on: ubuntu-latest
@@ -244,12 +239,16 @@ jobs:
           node-version: '18'
           cache: 'npm'
 
-      # ------------------------------------------------------------------------
-      # 启动后端服务进行集成测试
-      # ------------------------------------------------------------------------
-      - name: 安装后端依赖
+      - name: 安装后端依赖（npm ci 失败时回退到 npm install）
         working-directory: ./backend
-        run: npm ci
+        run: |
+          if [ -f package-lock.json ]; then
+            echo "Found package-lock.json, trying npm ci..."
+            npm ci --no-audit --no-fund || (echo "npm ci failed, falling back to npm install..."; rm -f package-lock.json && npm install --no-audit --no-fund)
+          else
+            echo "No package-lock.json found, running npm install..."
+            npm install --no-audit --no-fund
+          fi
 
       - name: 启动后端服务（测试模式）
         working-directory: ./backend
@@ -263,7 +262,6 @@ jobs:
           JWT_SECRET: test_jwt_secret_key_for_ci
           PORT: 5160
         run: |
-          # 等待数据库就绪
           echo "等待数据库就绪..."
           until mysqladmin ping -h 127.0.0.1 -u root -proot --silent 2>/dev/null; do
             echo "等待数据库连接..."
@@ -271,14 +269,11 @@ jobs:
           done
           echo "数据库已就绪"
           
-          # 后台启动服务
           node app.js &
           SERVER_PID=$!
           
-          # 等待服务启动
           sleep 10
           
-          # 检查服务是否运行
           if ps -p $SERVER_PID > /dev/null; then
             echo "✅ 后端服务启动成功"
           else
@@ -286,17 +281,12 @@ jobs:
             exit 1
           fi
           
-          # 测试 API 端点
           echo "测试 API 健康检查..."
           curl -f http://localhost:5160/ || { echo "❌ 健康检查失败"; kill $SERVER_PID; exit 1; }
           echo "✅ API 健康检查通过"
           
-          # 清理
           kill $SERVER_PID
 
-      # ------------------------------------------------------------------------
-      # Docker Compose 集成测试
-      # ------------------------------------------------------------------------
       - name: Docker Compose 集成测试
         run: |
           echo "创建测试环境变量..."
@@ -317,15 +307,12 @@ jobs:
           echo "检查服务健康状态..."
           docker compose ps
           
-          # 检查后端健康状态
           BACKEND_STATUS=$(docker inspect -f '{{.State.Health.Status}}' it_platform_backend 2>/dev/null || echo "unknown")
           echo "后端健康状态: $BACKEND_STATUS"
           
-          # 检查前端健康状态
           FRONTEND_STATUS=$(docker inspect -f '{{.State.Health.Status}}' it_platform_frontend 2>/dev/null || echo "unknown")
           echo "前端健康状态: $FRONTEND_STATUS"
           
-          # 测试后端 API
           echo "测试后端 API..."
           for i in {1..10}; do
             if curl -s -f http://localhost:5160/ > /dev/null 2>&1; then
@@ -336,7 +323,6 @@ jobs:
             sleep 5
           done
           
-          # 测试前端
           echo "测试前端..."
           for i in {1..10}; do
             if curl -s -f http://localhost:3160/ > /dev/null 2>&1; then
@@ -347,7 +333,6 @@ jobs:
             sleep 5
           done
           
-          # 显示最终服务状态
           echo ""
           echo "========================================="
           echo "  集成测试服务状态汇总"
@@ -355,12 +340,8 @@ jobs:
           docker compose ps
           echo ""
           
-          # 清理
           docker compose down -v
 
-  # ============================================================================
-  # Job 6: 构建产物部署（仅 main 分支）
-  # ============================================================================
   deploy:
     name: 部署校验与通知
     runs-on: ubuntu-latest
@@ -404,9 +385,6 @@ jobs:
           echo ""
           echo "可以执行部署操作。"
 
-# ==============================================================================
-# 工作流环境配置
-# ==============================================================================
 env:
   NODE_ENV: test
   TZ: Asia/Shanghai

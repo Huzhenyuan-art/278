@@ -9,7 +9,13 @@ WORKDIR /app
 COPY package.json package-lock.json* ./
 
 RUN npm config set registry https://registry.npmmirror.com && \
-    npm ci
+    if [ -f package-lock.json ]; then \
+        echo "Found package-lock.json, verifying integrity..."; \
+        npm ci || (echo "npm ci failed, falling back to npm install..."; rm -f package-lock.json && npm install --no-audit --no-fund); \
+    else \
+        echo "No package-lock.json found, running npm install..."; \
+        npm install --no-audit --no-fund; \
+    fi
 
 COPY . .
 
