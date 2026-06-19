@@ -9,7 +9,11 @@ const app = new Koa();
 
 // Middleware
 app.use(logger());
-app.use(bodyParser());
+app.use(bodyParser({
+  enableTypes: ['json', 'form'],
+  jsonLimit: '10mb',
+  formLimit: '10mb',
+}));
 app.use(serve(path.join(__dirname, 'public')));
 
 // Error Handling

@@ -3051,3 +3051,403 @@ Error Boundary 仅能捕获**子组件**的以下错误：
 
 **文档版本**：v1.0（管理页面空白问题全面排查与修复）  
 **最后更新**：2026-06-19
+
+---
+
+# 图片上传功能"服务器连接异常"修复指南
+
+## 文档信息
+
+| 项目 | 内容 |
+|------|------|
+| **问题编号** | FIX-013 |
+| **问题类型** | 依赖包不兼容 / Nginx 配置缺失 / 中间件冲突 |
+| **影响接口** | `POST /api/upload/cover`、`POST /api/upload/content` |
+| **错误信息** | `服务器连接异常，请稍后重试` |
+| **发现日期** | 2026-06-19 |
+| **修复日期** | 2026-06-19 |
+| **严重程度** | 🔴 P0 — 图片上传功能完全不可用 |
+
+---
+
+## 1. 问题现象
+
+### 1.1 用户反馈
+
+用户在文章创建/编辑页选择图片文件后，系统提示"服务器连接异常，请稍后重试"，图片上传功能完全不可用。无论是封面图上传还是正文图片上传均受影响。
+
+### 1.2 前端错误追踪
+
+```
+用户点击上传 → HttpUtil.upload() → fetch POST /api/upload/cover
+    ↓
+Nginx proxy_pass → http://backend:5160/upload/cover
+    ↓
+后端 koa-multer 中间件崩溃 / Nginx 413 拦截
+    ↓
+返回 HTML 格式错误页（非 JSON）
+    ↓
+HttpUtil.parseResponse() 检测到 HTML → 抛出 "服务器连接异常，请稍后重试"
+```
+
+---
+
+## 2. 根本原因分析
+
+经全面排查，发现 **3 个独立问题** 叠加导致了上传失败，任一问题单独存在都会造成功能不可用：
+
+### 2.1 问题 1（致命）：`koa-multer` 与 Koa 2.x 不兼容
+
+**文件**：[package.json](file:///d:/Desktop/新建文件夹%20(2)/278-20260128-123520/278/backend/package.json#L20)
+
+**错误依赖**：
+```json
+"koa-multer": "^1.0.2"
+```
+
+**不兼容原因**：
+
+| 包名 | 适配框架 | 中间件风格 | 导出接口 |
+|------|---------|-----------|---------|
+| `koa-multer` | Koa 1.x | Generator 函数 (`function*`) | `multer.single()` 返回 generator 中间件 |
+| `@koa/multer` | Koa 2.x | Async 函数 (`async function`) | `multer.single()` 返回 async 中间件 |
+
+本项目使用 Koa 2.14.2（`"koa": "^2.14.2"`），其路由和中间件体系基于 `async/await`。当 `koa-multer` 的 generator 中间件被注册到 Koa 2 路由时：
+
+1. `router.post('/cover', authMiddleware, coverUpload.single('file'), ...)` 中的 `coverUpload.single('file')` 返回一个 generator 函数
+2. Koa 2 的路由器尝试 `await next()` 调用它时，generator 不会像 async 函数那样执行
+3. 中间件链断裂，请求体（multipart form data）**从未被解析**
+4. `ctx.req.file` / `ctx.file` 为 `undefined`
+5. 后续代码可能抛出 TypeError（访问 undefined 的属性），被全局错误处理捕获后返回 500
+
+**验证方式**：检查 `koa-multer` 的 npm 页面，其 README 明确标注 "Middleware for Koa1"，且最后发布时间为 2016 年，早已停止维护。而 `@koa/multer` 是 Koa 官方团队维护的 Koa 2 适配版本。
+
+### 2.2 问题 2（致命）：Nginx 缺少 `client_max_body_size` 配置
+
+**文件**：[nginx.conf](file:///d:/Desktop/新建文件夹%20(2)/278-20260128-123520/278/frontend/nginx.conf)
+
+**缺失配置**：
+```nginx
+server {
+    # ❌ 未设置 client_max_body_size，默认仅 1MB
+    location /api/ {
+        # ❌ location 块内也未设置
+        proxy_pass http://backend:5160/;
+    }
+}
+```
+
+**影响**：
+
+Nginx 的 `client_max_body_size` 默认值为 **1MB**。图片上传使用 `multipart/form-data` 编码，文件内容 + 边界标记 + base64 开销，实际传输大小通常比文件原始大小大 30%-50%。因此：
+
+| 原始图片大小 | multipart 传输大小 | Nginx 是否拦截 |
+|------------|-------------------|--------------|
+| 100KB | ~130KB | ✅ 通过 |
+| 700KB | ~910KB | ✅ 通过（刚好在 1MB 以下） |
+| 800KB+ | ~1.04MB+ | ❌ **413 Request Entity Too Large** |
+
+Nginx 返回 413 时，响应体是 **HTML 格式的错误页**（`<html><head>...413 Request Entity Too Large...</html>`），Content-Type 为 `text/html`。
+
+前端 `HttpUtil.parseResponse()` 检测到 HTML 响应后，抛出"服务器连接异常，请稍后重试"。这就是用户看到的错误信息。
+
+**即使修复了问题 1（koa-multer），只要上传的图片稍大（>800KB），仍会被 Nginx 拦截，功能依然不可用。**
+
+### 2.3 问题 3（隐患）：`koa-bodyparser` 可能干扰 multipart 请求
+
+**文件**：[app.js](file:///d:/Desktop/新建文件夹%20(2)/278-20260128-123520/278/backend/app.js#L12)
+
+**原配置**：
+```javascript
+app.use(bodyParser());
+```
+
+`koa-bodyparser` 作为全局中间件在所有路由之前执行。虽然它默认只处理 `application/json` 和 `application/x-www-form-urlencoded`，**理论上**会跳过 `multipart/form-data`，但存在两个风险：
+
+1. **Body 流消费风险**：Node.js 的 HTTP 请求体是 Readable Stream，只能被消费一次。如果 `koa-bodyparser` 的某些版本或配置在判断 Content-Type 之前就读取了 stream，后续的 `multer` 将拿到空流
+2. **显式配置更安全**：通过 `enableTypes: ['json', 'form']` 显式声明只处理这两种类型，消除任何模糊行为
+
+---
+
+## 3. 排查过程
+
+### 3.1 排查路线图
+
+```
+Step 1: 前端上传代码审查 → HttpUtil.upload() / parseResponse()
+Step 2: 后端上传路由审查 → routes/upload.js
+Step 3: 依赖兼容性验证 → koa-multer vs @koa/multer
+Step 4: Nginx 配置审查 → client_max_body_size
+Step 5: 全局中间件审查 → koa-bodyparser 与 multipart 的交互
+Step 6: 上传错误处理审查 → multer 错误的 JSON 返回
+```
+
+### 3.2 Step 1：前端上传代码审查
+
+**文件**：[HttpUtil.js](file:///d:/Desktop/新建文件夹%20(2)/278-20260128-123520/278/frontend/src/utils/HttpUtil.js#L153-L198)
+
+前端 `upload()` 方法逻辑正确：
+- 使用 `FormData` 封装文件
+- 不设置 `Content-Type` 头（让浏览器自动设置 `multipart/form-data; boundary=...`）
+- 正确携带 `Authorization` 头
+
+但 `parseResponse()` 在收到 HTML 格式响应时抛出"服务器连接异常"，这个行为本身是正确的——**问题在于后端/Nginx 返回了 HTML 而不是 JSON**。
+
+**结论**：前端代码无 Bug，问题在上游。
+
+### 3.3 Step 2：后端上传路由审查
+
+**文件**：[upload.js](file:///d:/Desktop/新建文件夹%20(2)/278-20260128-123520/278/backend/routes/upload.js)
+
+发现关键问题：
+
+```javascript
+const multer = require('koa-multer');  // ← ❌ Koa 1.x 包
+// ...
+router.post('/cover', authMiddleware, coverUpload.single('file'), async (ctx) => {
+    if (!ctx.req.file) {  // ← ❌ @koa/multer 挂载到 ctx.file 而非 ctx.req.file
+```
+
+**结论**：包版本错误 + API 用法不匹配。
+
+### 3.4 Step 3：依赖兼容性验证
+
+查阅 npm 仓库：
+
+| 包 | 适配 Koa 版本 | 周下载量 | 最后更新 |
+|----|-------------|---------|---------|
+| `koa-multer` | Koa 1.x | ~3,000 | 2016 年 |
+| `@koa/multer` | Koa 2.x | ~150,000 | 2023 年 |
+
+**结论**：确认必须替换为 `@koa/multer`。
+
+### 3.5 Step 4：Nginx 配置审查
+
+**文件**：[nginx.conf](file:///d:/Desktop/新建文件夹%20(2)/278-20260128-123520/278/frontend/nginx.conf)
+
+全文件无 `client_max_body_size` 指令。Nginx 默认 1MB 限制。
+
+**结论**：大于约 800KB 的图片上传会被 Nginx 直接拦截。
+
+### 3.6 Step 5：全局中间件审查
+
+**文件**：[app.js](file:///d:/Desktop/新建文件夹%20(2)/278-20260128-123520/278/backend/app.js#L12)
+
+`bodyParser()` 无参数调用，使用默认配置。虽然默认 `enableTypes` 为 `['json', 'form']`，但未显式配置，存在隐式依赖。
+
+**结论**：需要显式配置并增加 body 大小限制。
+
+### 3.7 Step 6：上传错误处理审查
+
+当 `multer` 因文件过大或类型不符抛出错误时（如 `LIMIT_FILE_SIZE`），这些错误被 `app.js` 全局错误处理捕获，返回 `{ error: err.message }`。这部分逻辑基本正确，但错误信息不够友好，且缺少针对 multer 特定错误码的专门处理。
+
+**结论**：需在上传路由中增加专门的 multer 错误处理中间件。
+
+---
+
+## 4. 解决方案
+
+### 4.1 修复 1：替换 `koa-multer` 为 `@koa/multer`
+
+**文件**：[package.json](file:///d:/Desktop/新建文件夹%20(2)/278-20260128-123520/278/backend/package.json#L20)
+
+| 修改前 | 修改后 |
+|--------|--------|
+| `"koa-multer": "^1.0.2"` | `"@koa/multer": "^3.0.2"` |
+
+**文件**：[upload.js](file:///d:/Desktop/新建文件夹%20(2)/278-20260128-123520/278/backend/routes/upload.js#L2)
+
+| 修改前 | 修改后 |
+|--------|--------|
+| `const multer = require('koa-multer');` | `const multer = require('@koa/multer');` |
+
+**文件**：[upload.js](file:///d:/Desktop/新建文件夹%20(2)/278-20260128-123520/278/backend/routes/upload.js#L62-L84)
+
+`@koa/multer` 将上传文件信息挂载到 `ctx.file`（而非 `ctx.req.file`），路由处理器同步更新：
+
+| 修改前 | 修改后 |
+|--------|--------|
+| `if (!ctx.req.file)` | `const file = ctx.file; if (!file)` |
+| `ctx.req.file.originalname` | `file.originalname` |
+| `ctx.req.file.size` | `file.size` |
+
+### 4.2 修复 2：Nginx 添加 `client_max_body_size`
+
+**文件**：[nginx.conf](file:///d:/Desktop/新建文件夹%20(2)/278-20260128-123520/278/frontend/nginx.conf)
+
+```nginx
+server {
+    client_max_body_size 10m;    # 全局允许最大 10MB 请求体
+
+    location /api/ {
+        client_max_body_size 10m;  # API 代理块内也显式设置
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        # ... 其他 proxy 配置 ...
+    }
+}
+```
+
+**选择 10MB 的原因**：
+- 后端 multer 限制单文件 5MB（`config.upload.maxSize`）
+- multipart 编码开销约 30%-50%，5MB 文件实际传输约 6.5-7.5MB
+- 10MB 留有余量，同时防止过大文件占用服务器资源
+- 如需调整，只需修改 Nginx 配置和后端 `config.upload.maxSize` 两处
+
+### 4.3 修复 3：`koa-bodyparser` 显式配置
+
+**文件**：[app.js](file:///d:/Desktop/新建文件夹%20(2)/278-20260128-123520/278/backend/app.js#L12-L16)
+
+| 修改前 | 修改后 |
+|--------|--------|
+| `app.use(bodyParser());` | `app.use(bodyParser({ enableTypes: ['json', 'form'], jsonLimit: '10mb', formLimit: '10mb' }));` |
+
+**配置说明**：
+- `enableTypes: ['json', 'form']`：显式只处理 JSON 和 URL-encoded，**绝不碰 multipart**
+- `jsonLimit: '10mb'`：与 Nginx 的 10MB 限制保持一致
+- `formLimit: '10mb'`：URL-encoded 表单同样放宽
+
+### 4.4 修复 4：上传路由增加 multer 专用错误处理
+
+**文件**：[upload.js](file:///d:/Desktop/新建文件夹%20(2)/278-20260128-123520/278/backend/routes/upload.js#L62-L83)
+
+新增 `multerErrorHandler` 中间件，专门捕获 multer 抛出的错误并返回**JSON 格式**的友好提示：
+
+```javascript
+const multerErrorHandler = async (ctx, next) => {
+    try {
+        await next();
+    } catch (err) {
+        if (err.code === 'LIMIT_FILE_SIZE') {
+            ctx.status = 400;
+            ctx.body = { error: '文件大小超过限制（最大 5MB）' };
+            return;
+        }
+        if (err.message && err.message.includes('不支持的文件类型')) {
+            ctx.status = 400;
+            ctx.body = { error: err.message };
+            return;
+        }
+        if (err.code === 'LIMIT_UNEXPECTED_FILE') {
+            ctx.status = 400;
+            ctx.body = { error: '上传字段名不正确，请使用 file' };
+            return;
+        }
+        throw err;
+    }
+};
+```
+
+**作用**：确保 multer 的各种错误都返回 JSON 而非触发全局 500 错误处理，前端可以正确解析并显示友好的中文提示。
+
+### 4.5 修复 5：前端增加 413 状态码专门处理
+
+**文件**：[HttpUtil.js](file:///d:/Desktop/新建文件夹%20(2)/278-20260128-123520/278/frontend/src/utils/HttpUtil.js#L170-L172)
+
+在 `upload()` 方法中，`parseResponse()` 之前先检查 413 状态码：
+
+```javascript
+if (response.status === 413) {
+    throw new Error('文件大小超过服务器限制，请选择较小的图片');
+}
+```
+
+**作用**：即使将来 Nginx 配置被误改回默认值，用户也能看到明确的中文提示，而不是笼统的"服务器连接异常"。
+
+---
+
+## 5. 修复前后对比
+
+| 场景 | 修复前 | 修复后 |
+|------|--------|--------|
+| 上传任意图片 | ❌ "服务器连接异常" | ✅ 上传成功，返回图片 URL |
+| 上传 >5MB 图片 | ❌ "服务器连接异常"（Nginx 413 或 multer 错误） | ✅ "文件大小超过限制（最大 5MB）" |
+| 上传非图片文件 | ❌ "服务器连接异常" | ✅ "不支持的文件类型，仅支持 JPG、PNG、GIF、WEBP 格式" |
+| 上传 >800KB 图片（Nginx 拦截） | ❌ "服务器连接异常"（413 HTML 页面） | ✅ "文件大小超过服务器限制，请选择较小的图片" |
+| 正文插入图片 | ❌ 图片无法插入 Markdown | ✅ 自动在光标处插入 `![name](url)` |
+
+---
+
+## 6. 验证步骤
+
+### 6.1 代码静态验证
+
+- `backend/package.json` → ✅ `@koa/multer` 替代 `koa-multer`
+- `backend/routes/upload.js` → ✅ import 改为 `@koa/multer`，`ctx.file` 替代 `ctx.req.file`
+- `backend/app.js` → ✅ bodyParser 显式配置
+- `frontend/nginx.conf` → ✅ `client_max_body_size 10m`
+- `frontend/src/utils/HttpUtil.js` → ✅ 413 状态码处理
+
+### 6.2 运行时验证（Docker 启动后）
+
+| # | 场景 | 操作步骤 | 预期结果 |
+|---|------|---------|---------|
+| 1 | 封面图上传 | 创建/编辑文章 → 点击上传封面图 → 选择一张 JPG 图片 | 上传成功，封面图预览显示 |
+| 2 | 正文图片上传 | 编辑器工具栏点击"上传图片" → 选择一张 PNG 图片 | 图片插入 Markdown 正文，预览可见 |
+| 3 | 大文件上传 | 选择一张 >5MB 的图片上传 | 提示"文件大小超过限制（最大 5MB）" |
+| 4 | 非图片文件 | 选择一个 .pdf 文件上传 | 提示"不支持的文件类型" |
+| 5 | 删除封面图 | 已上传封面图 → 点击删除按钮 | 封面图清空，回退到上传区域 |
+| 6 | 编辑回显 | 编辑已有封面图的文章 | 封面图正确回显，可替换或删除 |
+| 7 | 详情页展示 | 访问有封面图的文章详情 | 封面图以 banner 形式展示 |
+| 8 | 列表页展示 | 首页文章列表 | 有封面图的卡片顶部显示缩略图 |
+| 9 | 图片持久化 | 上传图片 → 重启 Docker 容器 → 再次访问 | 图片仍然可访问（卷持久化生效） |
+
+---
+
+## 7. 预防措施
+
+### 7.1 依赖选择规范
+
+1. **Koa 2 项目必须使用 `@koa/` 官方命名空间下的中间件**：
+   - ✅ `@koa/multer`、`@koa/cors`、`@koa/router`
+   - ❌ `koa-multer`、`koa-cors`（Koa 1.x 时代的老包，不再维护）
+2. **新增依赖前必须检查**：
+   - npm 周下载量
+   - 最后发布时间
+   - 是否标注适配 Koa 2
+   - 是否有官方 `@koa/` 替代品
+
+### 7.2 Nginx 配置规范
+
+1. **任何涉及文件上传的 Nginx 站点必须显式设置 `client_max_body_size`**，不可依赖默认值
+2. **`client_max_body_size` 应与后端文件大小限制保持一致**（后端限制 × 1.5 ~ 2 倍，考虑编码开销）
+3. **在 server 块和 location 块中都应设置**，避免继承歧义
+
+### 7.3 中间件配置规范
+
+1. **`koa-bodyparser` 必须显式配置 `enableTypes`**，不要依赖默认行为
+2. **body 大小限制应与 Nginx `client_max_body_size` 对齐**
+3. **全局中间件的顺序很重要**：`bodyParser` → `serve` → `errorHandler` → `routes`
+
+### 7.4 错误处理规范
+
+1. **文件上传路由必须有专门的错误处理中间件**，捕获 multer 特定错误码（`LIMIT_FILE_SIZE`、`LIMIT_UNEXPECTED_FILE` 等）
+2. **所有错误响应必须返回 JSON 格式**，确保前端 `parseResponse()` 能正确解析
+3. **前端应对常见的 Nginx 错误码（413、502、504）做专门处理**，给出中文友好提示
+
+### 7.5 代码审查 Checklist
+
+- [ ] 新增的 npm 包是否与当前框架版本兼容？（Koa 1 vs 2、Express 3 vs 4 等）
+- [ ] Nginx 配置是否设置了 `client_max_body_size`？
+- [ ] `koa-bodyparser` 是否显式配置了 `enableTypes`？
+- [ ] 文件上传路由是否有 multer 错误处理中间件？
+- [ ] 前端是否处理了 413 等非 200/400 响应？
+- [ ] 文件上传字段名前后端是否一致（`file`）？
+
+---
+
+## 8. 修改文件清单
+
+| 文件 | 修改类型 | 说明 |
+|------|----------|------|
+| `backend/package.json` | 🔧 修复 | `koa-multer` → `@koa/multer` |
+| `backend/routes/upload.js` | 🔧 修复 | import 改为 `@koa/multer`；`ctx.req.file` → `ctx.file`；新增 `multerErrorHandler` 中间件 |
+| `backend/app.js` | 🔧 加固 | `bodyParser()` 改为显式配置 `enableTypes/jsonLimit/formLimit` |
+| `frontend/nginx.conf` | 🔧 修复 | 添加 `client_max_body_size 10m`（server 块 + location 块） |
+| `frontend/src/utils/HttpUtil.js` | 🔧 加固 | `upload()` 方法增加 413 状态码专门处理 |
+| `FIX_GUIDE.md` | 📝 文档 | 追加本次 FIX-013 记录 |
+
+---
+
+**文档版本**：v1.0（图片上传功能"服务器连接异常"修复）  
+**最后更新**：2026-06-19

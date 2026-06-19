@@ -167,6 +167,10 @@ export class HttpUtil {
                 body: formData,
             });
 
+            if (response.status === 413) {
+                throw new Error('文件大小超过服务器限制，请选择较小的图片');
+            }
+
             const data = await this.parseResponse(response);
 
             if (response.status === 401) {

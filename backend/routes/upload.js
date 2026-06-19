@@ -1,5 +1,5 @@
 const Router = require('koa-router');
-const multer = require('koa-multer');
+const multer = require('@koa/multer');
 const path = require('path');
 const fs = require('fs');
 const config = require('../config/default');
@@ -59,25 +59,50 @@ const buildFileUrl = (file, subDir) => {
     return `/uploads/${subDir}/${dateDir}/${file.filename}`;
 };
 
-router.post('/cover', authMiddleware, coverUpload.single('file'), async (ctx) => {
-    if (!ctx.req.file) {
+const multerErrorHandler = async (ctx, next) => {
+    try {
+        await next();
+    } catch (err) {
+        if (err.code === 'LIMIT_FILE_SIZE') {
+            ctx.status = 400;
+            ctx.body = { error: '文件大小超过限制（最大 5MB）' };
+            return;
+        }
+        if (err.message && err.message.includes('不支持的文件类型')) {
+            ctx.status = 400;
+            ctx.body = { error: err.message };
+            return;
+        }
+        if (err.code === 'LIMIT_UNEXPECTED_FILE') {
+            ctx.status = 400;
+            ctx.body = { error: '上传字段名不正确，请使用 file' };
+            return;
+        }
+        throw err;
+    }
+};
+
+router.post('/cover', authMiddleware, multerErrorHandler, coverUpload.single('file'), async (ctx) => {
+    const file = ctx.file;
+    if (!file) {
         ctx.throw(400, '请上传图片文件');
     }
     ctx.body = {
-        url: buildFileUrl(ctx.req.file, 'cover'),
-        filename: ctx.req.file.originalname,
-        size: ctx.req.file.size
+        url: buildFileUrl(file, 'cover'),
+        filename: file.originalname,
+        size: file.size
     };
 });
 
-router.post('/content', authMiddleware, contentUpload.single('file'), async (ctx) => {
-    if (!ctx.req.file) {
+router.post('/content', authMiddleware, multerErrorHandler, contentUpload.single('file'), async (ctx) => {
+    const file = ctx.file;
+    if (!file) {
         ctx.throw(400, '请上传图片文件');
     }
     ctx.body = {
-        url: buildFileUrl(ctx.req.file, 'content'),
-        filename: ctx.req.file.originalname,
-        size: ctx.req.file.size
+        url: buildFileUrl(file, 'content'),
+        filename: file.originalname,
+        size: file.size
     };
 });
 
